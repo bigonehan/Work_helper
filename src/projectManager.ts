@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import { extractAnswer, parseMarker, classifyFailure } from "./answerExtraction";
+import { logTmuxPromptCompletion, logTmuxPromptDispatch } from "./debugLogging";
+import { resolvePrompt } from "./prompts";
 import { buildProviderCommand } from "./providers";
 import {
   captureTargetPane,
@@ -37,6 +39,8 @@ interface ResolvedTaskOptions {
   provider: Provider;
   prompt: string;
   workspaceDir: string;
+  promptFilePath?: string;
+  debugLogging?: boolean;
   totalTimeoutMs: number;
   firstOutputTimeoutMs: number;
   responseTimeoutMs: number;
@@ -164,7 +168,7 @@ export const ensureProjectTmuxSession = (projectId: string, workspaceDir: string
     }
 
     const sessionName = makeSessionName(projectId);
-    const bootstrapCommand = `bash -lc ${shellQuote(`cd ${shellQuote(workspaceDir)} && exec bash`)}`;
+    const bootstrapCommand = ["bash", "-lc", `cd ${shellQuote(workspaceDir)} && exec bash`] as const;
     const created = await createDetachedSession(sessionName, bootstrapCommand);
     if (created.exitCode !== 0 && !(await sessionExists(sessionName))) {
       throw new Error(created.stderr.trim() || created.stdout.trim() || "Failed to create project tmux session.");
@@ -189,9 +193,17 @@ export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
 
     const session = await Effect.runPromise(ensureProjectTmuxSession(options.projectId, options.workspaceDir));
     const marker = `__WORK_HELPER_EXIT__${sanitize(options.projectId)}_${sanitize(options.taskId)}_${Date.now().toString(36)}`;
-    const providerCommand = buildProviderCommand(options.provider, options.prompt, options.workspaceDir, marker);
+    const prompt = await resolvePrompt(options.prompt, options.promptFilePath);
+    const providerCommand = buildProviderCommand(options.provider, prompt, options.workspaceDir, marker);
     const windowName = makeWindowName(options.taskId);
-    const created = await createWindow(session.sessionName, windowName, providerCommand.command);
+    await logTmuxPromptDispatch(options.debugLogging, {
+      scope: "projectManager.dispatch",
+      target: `${session.sessionName}:${windowName}`,
+      provider: options.provider,
+      workspaceDir: options.workspaceDir,
+      prompt,
+    });
+    const created = await createWindow(session.sessionName, windowName, providerCommand.argv);
     if (created.exitCode !== 0) {
       throw new Error(created.stderr.trim() || created.stdout.trim() || "Failed to create task window.");
     }
@@ -201,7 +213,7 @@ export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
       projectId: options.projectId,
       taskId: options.taskId,
       provider: options.provider,
-      prompt: options.prompt,
+      prompt,
       workspaceDir: options.workspaceDir,
       sessionName: session.sessionName,
       windowName,
@@ -288,13 +300,24 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
         answerPreview: answer,
       });
 
-      if (answer) {
-        const validationError = options.answerValidator?.(answer) ?? null;
-        if (validationError) {
-          if (markerSeen) {
-            finishTask(record, "answer_validation_failed", validationError);
-            return cleanupAndSnapshot(record, options);
-          }
+        if (answer) {
+          const validationError = options.answerValidator?.(answer) ?? null;
+          if (validationError) {
+            if (markerSeen) {
+              finishTask(record, "answer_validation_failed", validationError);
+              await logTmuxPromptCompletion(options.debugLogging, {
+                scope: "projectManager.completed",
+                target: record.windowTarget,
+                provider: record.provider,
+                workspaceDir: record.workspaceDir,
+                prompt: record.prompt,
+                answer,
+                status: "failed",
+                stage: "answer_validation_failed",
+                reason: validationError,
+              });
+              return cleanupAndSnapshot(record, options);
+            }
 
           updateRecord(record, {
             validationError,
@@ -308,6 +331,17 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
               ? "The provider returned a final answer."
               : "A valid answer was captured and remained stable before provider exit.",
           );
+          await logTmuxPromptCompletion(options.debugLogging, {
+            scope: "projectManager.completed",
+            target: record.windowTarget,
+            provider: record.provider,
+            workspaceDir: record.workspaceDir,
+            prompt: record.prompt,
+            answer,
+            status: "completed",
+            stage: "completed",
+            reason: record.lastObservation,
+          });
           return cleanupAndSnapshot(record, options);
         }
       }
@@ -315,18 +349,51 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
       if (!alive) {
         const failure = classifyFailure(record.panePreview, stage, markerSeen, alive);
         finishTask(record, failure.stage, failure.reason);
+        await logTmuxPromptCompletion(options.debugLogging, {
+          scope: "projectManager.completed",
+          target: record.windowTarget,
+          provider: record.provider,
+          workspaceDir: record.workspaceDir,
+          prompt: record.prompt,
+          answer: record.answerPreview,
+          status: "failed",
+          stage: failure.stage,
+          reason: failure.reason,
+        });
         return cleanupAndSnapshot(record, options);
       }
 
       if (record.firstOutputAt === null && Date.now() > firstOutputDeadline) {
         const failure = classifyFailure(record.panePreview, "waiting_for_first_output", markerSeen, alive);
         finishTask(record, failure.stage, failure.reason);
+        await logTmuxPromptCompletion(options.debugLogging, {
+          scope: "projectManager.completed",
+          target: record.windowTarget,
+          provider: record.provider,
+          workspaceDir: record.workspaceDir,
+          prompt: record.prompt,
+          answer: record.answerPreview,
+          status: "failed",
+          stage: failure.stage,
+          reason: failure.reason,
+        });
         return cleanupAndSnapshot(record, options);
       }
 
       if (record.firstOutputAt !== null && Date.now() > responseDeadline) {
         const failure = classifyFailure(record.panePreview, "waiting_for_final_answer", markerSeen, alive);
         finishTask(record, failure.stage, failure.reason);
+        await logTmuxPromptCompletion(options.debugLogging, {
+          scope: "projectManager.completed",
+          target: record.windowTarget,
+          provider: record.provider,
+          workspaceDir: record.workspaceDir,
+          prompt: record.prompt,
+          answer: record.answerPreview,
+          status: "failed",
+          stage: failure.stage,
+          reason: failure.reason,
+        });
         return cleanupAndSnapshot(record, options);
       }
 
@@ -334,9 +401,31 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
     }
 
     finishTask(record, "timeout", "The task exceeded the configured total timeout.");
+    await logTmuxPromptCompletion(options.debugLogging, {
+      scope: "projectManager.completed",
+      target: record.windowTarget,
+      provider: record.provider,
+      workspaceDir: record.workspaceDir,
+      prompt: record.prompt,
+      answer: record.answerPreview,
+      status: "failed",
+      stage: "timeout",
+      reason: "The task exceeded the configured total timeout.",
+    });
     return cleanupAndSnapshot(record, options);
   } catch (error) {
     finishTask(record, "tmux_start_failed", error instanceof Error ? error.message : String(error));
+    await logTmuxPromptCompletion(options.debugLogging, {
+      scope: "projectManager.completed",
+      target: record.windowTarget,
+      provider: record.provider,
+      workspaceDir: record.workspaceDir,
+      prompt: record.prompt,
+      answer: record.answerPreview,
+      status: "failed",
+      stage: "tmux_start_failed",
+      reason: error instanceof Error ? error.message : String(error),
+    });
     return cleanupAndSnapshot(record, options);
   }
 }

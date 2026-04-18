@@ -7,7 +7,10 @@ import { createContainsAnyValidator } from "../src/validators";
 describe("buildProviderCommand", () => {
   test("escapes single quotes safely", () => {
     const command = buildProviderCommand("codex", "it's 1+1", "/tmp/demo", "__MARK__");
-    expect(command.command).toContain("'\\''");
+    expect(command.argv).toHaveLength(3);
+    expect(command.argv[0]).toBe("bash");
+    expect(command.argv[1]).toBe("-lc");
+    expect(command.argv[2]).toContain("'\\''");
   });
 });
 

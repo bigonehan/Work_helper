@@ -39,6 +39,7 @@ const stripGeminiToolNoise = (text: string): string =>
 const looksLikePromptEcho = (line: string, prompt: string): boolean => line.trim() === prompt.trim();
 
 const isSimpleStandaloneAnswer = (line: string): boolean => /^[+-]?\d+(?:\.\d+)?$/.test(line.trim());
+const isCompletionStandaloneAnswer = (line: string): boolean => /^(completed|complete|done|finished|success|완료)$/i.test(line.trim());
 
 const isToolNoiseLine = (line: string): boolean =>
   /^Error executing tool\b/i.test(line.trim()) ||
@@ -54,9 +55,19 @@ const extractCodexAnswer = (text: string, prompt: string): string | null => {
     return null;
   }
 
-  const directMatch = withoutFooter.match(/\n(?:assistant|codex)\n([\s\S]+)$/i);
-  if (directMatch?.[1]?.trim()) {
-    return directMatch[1].trim();
+  const directMatch = withoutFooter.match(/\n(?:assistant|codex)\n([\s\S]+)$/i)?.[1]?.trim();
+  if (directMatch) {
+    const directStandaloneAnswer = directMatch
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .reverse()
+      .find((line) => isSimpleStandaloneAnswer(line) || isCompletionStandaloneAnswer(line));
+    if (directStandaloneAnswer) {
+      return directStandaloneAnswer;
+    }
+
+    return directMatch;
   }
 
   const cleaned = withoutFooter
@@ -81,6 +92,14 @@ const extractCodexAnswer = (text: string, prompt: string): string | null => {
     .split("\n")
     .map((line) => line.trimEnd())
     .filter((line) => !looksLikePromptEcho(line, prompt));
+
+  const standaloneAnswer = [...cleanedLines]
+    .reverse()
+    .map((line) => line.trim())
+    .find((line) => isSimpleStandaloneAnswer(line) || isCompletionStandaloneAnswer(line));
+  if (standaloneAnswer) {
+    return standaloneAnswer;
+  }
 
   const withoutPromptEcho = cleanedLines.join("\n").trim();
   if (withoutPromptEcho) {

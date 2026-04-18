@@ -21,8 +21,8 @@ const runTmux = async (args: string[]): Promise<TmuxCommandResult> => {
 
 export const createDetachedSession = async (
   sessionName: string,
-  command: string,
-): Promise<TmuxCommandResult> => runTmux(["new-session", "-d", "-s", sessionName, command]);
+  command: readonly string[],
+): Promise<TmuxCommandResult> => runTmux(["new-session", "-d", "-s", sessionName, ...command]);
 
 export const capturePane = async (sessionName: string): Promise<string> => {
   const result = await runTmux(["capture-pane", "-p", "-t", sessionName]);
@@ -37,8 +37,8 @@ export const captureTargetPane = async (target: string): Promise<string> => {
 export const createWindow = async (
   sessionName: string,
   windowName: string,
-  command: string,
-): Promise<TmuxCommandResult> => runTmux(["new-window", "-d", "-t", sessionName, "-n", windowName, command]);
+  command: readonly string[],
+): Promise<TmuxCommandResult> => runTmux(["new-window", "-d", "-t", sessionName, "-n", windowName, ...command]);
 
 export const sessionExists = async (sessionName: string): Promise<boolean> => {
   const result = await runTmux(["has-session", "-t", sessionName]);

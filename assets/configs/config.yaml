@@ -1,0 +1,6 @@
+logicRuntime: effect.ts
+serverRuntime: bun
+frontendFramework: next.js
+uiLibrary: shadcn
+uiMobileCheck: playwright로 브라우저를 열고 모바일 모드에서 화면 깨짐 여부를 검사한다
+testFirstPolicy: 코드 개선, 수정, 신규 기능 추가 시 unit test를 먼저 작성한다

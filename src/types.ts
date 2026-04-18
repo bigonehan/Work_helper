@@ -1,4 +1,8 @@
+import type { Layer } from "effect";
+
 export type Provider = "codex" | "gemini";
+export type ProjectType = "code" | "mono";
+export type ProjectSpec = "typescript" | "python" | "rust";
 
 export type RunPromptStage =
   | "starting"
@@ -18,6 +22,8 @@ export interface RunPromptOptions {
   readonly provider: Provider;
   readonly msg: string;
   readonly workspaceDir: string;
+  readonly promptFilePath?: string;
+  readonly debugLogging?: boolean;
   readonly totalTimeoutMs?: number;
   readonly startupTimeoutMs?: number;
   readonly firstOutputTimeoutMs?: number;
@@ -64,6 +70,8 @@ export interface ProjectTmuxTaskOptions {
   readonly provider: Provider;
   readonly prompt: string;
   readonly workspaceDir: string;
+  readonly promptFilePath?: string;
+  readonly debugLogging?: boolean;
   readonly totalTimeoutMs?: number;
   readonly firstOutputTimeoutMs?: number;
   readonly responseTimeoutMs?: number;
@@ -109,3 +117,95 @@ export interface ProjectTaskSnapshot {
 }
 
 export type ProjectTaskListItem = ProjectTaskSnapshot;
+
+export type ManagerDecision = "complete" | "retry" | "halt";
+
+export interface ManagerVerificationResult {
+  readonly ok: boolean;
+  readonly summary: string;
+}
+
+export interface ProjectArtifactContext {
+  readonly projectId: string;
+  readonly projectType: ProjectType;
+  readonly projectSpec: ProjectSpec;
+  readonly request: string;
+  readonly workspaceDir: string;
+  readonly timestamp: string;
+  readonly summary: string;
+}
+
+export interface ProjectArtifactService {
+  readonly projectType: ProjectType;
+  readonly renderProjectDocument: (context: ProjectArtifactContext) => Promise<string> | string;
+  readonly readProjectDocument: (projectFilePath: string) => Promise<string> | string;
+  readonly renderJobDocument: (context: ProjectArtifactContext) => Promise<string> | string;
+  readonly renderDraftDocument: (context: ProjectArtifactContext) => Promise<string> | string;
+  readonly readJobDocument: (jobFilePath: string) => Promise<string> | string;
+  readonly runBuildStage: (logger: (message: string) => void) => readonly string[];
+  readonly runCheckStage: (logger: (message: string) => void) => string;
+  readonly buildBootstrapPrompt: (context: {
+    readonly projectType: ProjectType;
+    readonly projectSpec: ProjectSpec;
+    readonly workspaceDir: string;
+  }) => Promise<string> | string;
+}
+
+export type ManagerTaskAssessmentKind = "working" | "stalled" | "error" | "failed";
+
+export interface ManagerTaskAssessment {
+  readonly kind: ManagerTaskAssessmentKind;
+  readonly reason: string;
+}
+
+export interface ManagerAttemptRecord {
+  readonly attempt: number;
+  readonly taskId: string;
+  readonly prompt: string;
+  readonly snapshot: ProjectTaskSnapshot;
+  readonly providerClaimedCompletion: boolean;
+  readonly verification: ManagerVerificationResult | null;
+  readonly taskAssessment: ManagerTaskAssessment | null;
+  readonly decision: ManagerDecision;
+  readonly reason: string;
+}
+
+export interface ManagerRequest {
+  readonly projectId: string;
+  readonly projectType: ProjectType;
+  readonly request: string;
+  readonly workspaceDir: string;
+  readonly provider: Provider;
+  readonly projectLayer?: Layer.Layer<ProjectArtifactService>;
+  readonly debugLogging?: boolean;
+  readonly maxAttempts?: number;
+  readonly totalTimeoutMs?: number;
+  readonly firstOutputTimeoutMs?: number;
+  readonly responseTimeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly stableAnswerWindowMs?: number;
+  readonly preserveWindowOnFailure?: boolean;
+  readonly prepareWorkspace?: (() => Promise<void>) | undefined;
+  readonly verifyCompletion?:
+    | ((
+        context: Pick<ManagerRequest, "projectId" | "request" | "workspaceDir" | "provider"> & {
+          readonly attempt: number;
+          readonly answer: string | null;
+          readonly snapshot: ProjectTaskSnapshot;
+        },
+      ) => Promise<ManagerVerificationResult> | ManagerVerificationResult)
+    | undefined;
+}
+
+export interface ManagerResult {
+  readonly ok: boolean;
+  readonly projectId: string;
+  readonly request: string;
+  readonly workspaceDir: string;
+  readonly provider: Provider;
+  readonly attempts: readonly ManagerAttemptRecord[];
+  readonly decision: ManagerDecision;
+  readonly reason: string;
+  readonly finalAnswer: string | null;
+  readonly finalSnapshot: ProjectTaskSnapshot | null;
+}

@@ -2,7 +2,7 @@ import type { Provider } from "./types";
 
 export interface ProviderCommand {
   readonly provider: Provider;
-  readonly command: string;
+  readonly argv: readonly string[];
   readonly commandPreview: string;
 }
 
@@ -26,7 +26,7 @@ export const buildProviderCommand = (
 
     return {
       provider,
-      command: `bash -lc ${shellQuote(inner)}`,
+      argv: ["bash", "-lc", inner],
       commandPreview:
         "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never <msg>",
     };
@@ -39,7 +39,7 @@ export const buildProviderCommand = (
 
   return {
     provider,
-    command: `bash -lc ${shellQuote(inner)}`,
+    argv: ["bash", "-lc", inner],
     commandPreview: "gemini -p <msg> --approval-mode yolo --sandbox false -o text",
   };
 };

@@ -1,11 +1,12 @@
 {
   "name": "work_helper",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "bun test",
     "test:integration": "bun test test/integration.test.ts",
+    "test:manager-integration": "bun test test/manager.integration.test.ts",
     "probe:one-plus-one": "bun run src/probe.ts"
   },
   "dependencies": {

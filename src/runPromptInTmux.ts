@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import { classifyFailure, extractAnswer, parseMarker } from "./answerExtraction";
+import { logTmuxPromptCompletion, logTmuxPromptDispatch } from "./debugLogging";
+import { resolvePrompt } from "./prompts";
 import { capturePane, createDetachedSession, killSession, sessionExists } from "./tmux";
 import { buildProviderCommand, classifyAuthHints } from "./providers";
 import type { RunPromptOptions, RunPromptResult, RunPromptStage } from "./types";
@@ -31,6 +33,8 @@ interface ResolvedRunPromptOptions {
   provider: RunPromptOptions["provider"];
   msg: string;
   workspaceDir: string;
+  promptFilePath?: string;
+  debugLogging?: boolean;
   totalTimeoutMs: number;
   startupTimeoutMs: number;
   firstOutputTimeoutMs: number;
@@ -76,12 +80,20 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
     const options: ResolvedRunPromptOptions = { ...defaultOptions, ...input };
     const sessionName = makeSessionName(options.sessionNamePrefix, options.provider);
     const marker = `__WORK_HELPER_EXIT__${sessionName}`;
+    const prompt = await resolvePrompt(options.msg, options.promptFilePath);
     const providerCommand = buildProviderCommand(
       options.provider,
-      options.msg,
+      prompt,
       options.workspaceDir,
       marker,
     );
+    await logTmuxPromptDispatch(options.debugLogging, {
+      scope: "runPromptInTmux.dispatch",
+      target: sessionName,
+      provider: options.provider,
+      workspaceDir: options.workspaceDir,
+      prompt,
+    });
     const startedAt = Date.now();
     const timings: MutableTimings = {
       startedAt,
@@ -98,8 +110,19 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
     let lastPaneSnapshot = "";
     let lastPaneChangeAt = startedAt;
 
-    const created = await createDetachedSession(sessionName, providerCommand.command);
+    const created = await createDetachedSession(sessionName, providerCommand.argv);
     if (created.exitCode !== 0) {
+      await logTmuxPromptCompletion(options.debugLogging, {
+        scope: "runPromptInTmux.completed",
+        target: sessionName,
+        provider: options.provider,
+        workspaceDir: options.workspaceDir,
+        prompt,
+        answer: null,
+        status: "failed",
+        stage: "tmux_start_failed",
+        reason: created.stderr.trim() || "tmux new-session failed.",
+      });
       return buildResult(
         options,
         sessionName,
@@ -138,14 +161,25 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
           stage = "waiting_for_first_output";
         }
 
-        answer = extractAnswer(options.provider, options.msg, paneSnapshot, marker);
+        answer = extractAnswer(options.provider, prompt, paneSnapshot, marker);
         if (answer) {
           const validationError = options.answerValidator?.(answer) ?? null;
           if (validationError) {
             if (markerSeen) {
-              timings.finalAnswerAt = Date.now();
-              timings.exitedAt = timings.finalAnswerAt;
-              return buildResult(
+            timings.finalAnswerAt = Date.now();
+            timings.exitedAt = timings.finalAnswerAt;
+            await logTmuxPromptCompletion(options.debugLogging, {
+              scope: "runPromptInTmux.completed",
+              target: sessionName,
+              provider: options.provider,
+              workspaceDir: options.workspaceDir,
+              prompt,
+              answer,
+              status: "failed",
+              stage: "answer_validation_failed",
+              reason: validationError,
+            });
+            return buildResult(
                 options,
                 sessionName,
                 "answer_validation_failed",
@@ -164,6 +198,19 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
           ) {
             timings.finalAnswerAt = Date.now();
             timings.exitedAt = markerSeen ? timings.finalAnswerAt : null;
+            await logTmuxPromptCompletion(options.debugLogging, {
+              scope: "runPromptInTmux.completed",
+              target: sessionName,
+              provider: options.provider,
+              workspaceDir: options.workspaceDir,
+              prompt,
+              answer,
+              status: "completed",
+              stage: "completed",
+              reason: markerSeen
+                ? "The provider returned a final answer."
+                : "A valid answer was captured and remained stable before provider exit.",
+            });
             return buildResult(
               options,
               sessionName,
@@ -184,6 +231,17 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
         if (!alive) {
           timings.exitedAt = Date.now();
           const failure = classifyFailure(paneSnapshot, stage, markerSeen, alive);
+          await logTmuxPromptCompletion(options.debugLogging, {
+            scope: "runPromptInTmux.completed",
+            target: sessionName,
+            provider: options.provider,
+            workspaceDir: options.workspaceDir,
+            prompt,
+            answer,
+            status: "failed",
+            stage: failure.stage,
+            reason: failure.reason,
+          });
           return buildResult(
             options,
             sessionName,
@@ -200,6 +258,17 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
 
         if (timings.firstOutputAt === null && Date.now() > firstOutputDeadline) {
           const failure = classifyFailure(paneSnapshot, "waiting_for_first_output", markerSeen, alive);
+          await logTmuxPromptCompletion(options.debugLogging, {
+            scope: "runPromptInTmux.completed",
+            target: sessionName,
+            provider: options.provider,
+            workspaceDir: options.workspaceDir,
+            prompt,
+            answer,
+            status: "failed",
+            stage: failure.stage,
+            reason: failure.reason,
+          });
           return buildResult(
             options,
             sessionName,
@@ -216,6 +285,17 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
 
         if (timings.firstOutputAt !== null && Date.now() > responseDeadline) {
           const failure = classifyFailure(paneSnapshot, "waiting_for_final_answer", markerSeen, alive);
+          await logTmuxPromptCompletion(options.debugLogging, {
+            scope: "runPromptInTmux.completed",
+            target: sessionName,
+            provider: options.provider,
+            workspaceDir: options.workspaceDir,
+            prompt,
+            answer,
+            status: "failed",
+            stage: failure.stage,
+            reason: failure.reason,
+          });
           return buildResult(
             options,
             sessionName,
@@ -233,6 +313,17 @@ export const runPromptInTmux = (input: RunPromptOptions) =>
         await sleep(options.pollIntervalMs);
       }
 
+      await logTmuxPromptCompletion(options.debugLogging, {
+        scope: "runPromptInTmux.completed",
+        target: sessionName,
+        provider: options.provider,
+        workspaceDir: options.workspaceDir,
+        prompt,
+        answer,
+        status: "failed",
+        stage: "timeout",
+        reason: "The call exceeded the total timeout.",
+      });
       return buildResult(
         options,
         sessionName,
