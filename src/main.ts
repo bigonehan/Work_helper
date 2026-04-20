@@ -4,7 +4,8 @@ import { ProjectTag, createProjectLayerForType } from "./server/artifacts";
 export enum ProjectStage {
   Request = "request",
   Init = "init",
-  Decompile = "decompile",
+  Plan = "plan",
+  Analyze = "analyze",
   Build = "build",
   Check = "check",
 }
@@ -14,21 +15,13 @@ export enum ProjectTransition {
   RequestToImportProject = "request->import-project",
   RequestToPlan = "request->plan",
   RequestToCheck = "request->check",
-  PlanToDecompile = "plan->disassemble",
-  DecompileToBuildDraft = "disassemble->build:draft",
-  BuildDraftToClassify = "build:draft->build:classify",
-  BuildClassifyToTest = "build:classify->build:test",
-  BuildTestToImplement = "build:test->build:implement",
-  BuildImplementToVerify = "build:implement->build:verify",
-  BuildVerifyToCheck = "build:verify->check",
+  PlanToAnalyze = "plan->analyze",
+  AnalyzeToBuild = "analyze->build",
+  BuildToCheck = "build->check",
 }
 
 export enum BuildSubstage {
-  Draft = "draft",
-  Classify = "classify",
-  Test = "test",
   Implement = "implement",
-  Verify = "verify",
 }
 
 export interface RequestStageInput {
@@ -66,9 +59,14 @@ export const runInitStage = (logger: StageLogger = defaultLogger): ProjectStage 
   return ProjectStage.Init;
 };
 
-export const runDecompileStage = (logger: StageLogger = defaultLogger): ProjectStage => {
-  logger(ProjectStage.Decompile);
-  return ProjectStage.Decompile;
+export const runPlanStage = (logger: StageLogger = defaultLogger): ProjectStage => {
+  logger(ProjectStage.Plan);
+  return ProjectStage.Plan;
+};
+
+export const runAnalyzeStage = (logger: StageLogger = defaultLogger): ProjectStage => {
+  logger(ProjectStage.Analyze);
+  return ProjectStage.Analyze;
 };
 
 export const runCheckStage = (logger: StageLogger = defaultLogger): ProjectStage => {
@@ -143,24 +141,19 @@ export const runProjectPipeline = (
     };
   }
 
-  logger(ProjectTransition.PlanToDecompile);
-  transitions.push(ProjectTransition.PlanToDecompile);
+  executedStages.push(runPlanStage(logger));
+  logger(ProjectTransition.PlanToAnalyze);
+  transitions.push(ProjectTransition.PlanToAnalyze);
 
-  executedStages.push(runDecompileStage(logger));
-  logger(ProjectTransition.DecompileToBuildDraft);
-  transitions.push(ProjectTransition.DecompileToBuildDraft);
+  executedStages.push(runAnalyzeStage(logger));
+  logger(ProjectTransition.AnalyzeToBuild);
+  transitions.push(ProjectTransition.AnalyzeToBuild);
 
   executedStages.push(ProjectStage.Build);
   buildSubstages.push(...runBuildStage(logger));
-  transitions.push(
-    ProjectTransition.BuildDraftToClassify,
-    ProjectTransition.BuildClassifyToTest,
-    ProjectTransition.BuildTestToImplement,
-    ProjectTransition.BuildImplementToVerify,
-  );
 
-  logger(ProjectTransition.BuildVerifyToCheck);
-  transitions.push(ProjectTransition.BuildVerifyToCheck);
+  logger(ProjectTransition.BuildToCheck);
+  transitions.push(ProjectTransition.BuildToCheck);
   executedStages.push(runCheckStage(logger));
 
   return {

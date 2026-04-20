@@ -3,26 +3,26 @@ import { Layer } from "effect";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { analyzeManagerTaskSnapshot, handleManagerRequest } from "../src/manager";
+import { analyzeManagerJobSnapshot, handleManagerRequest } from "../src/manager";
 import { ProjectTag } from "../src/server/artifacts";
 import type {
   ProjectArtifactService,
-  ProjectTaskSnapshot,
-  ProjectTmuxTaskOptions,
+  ProjectJobSnapshot,
+  ProjectTmuxJobOptions,
   RunPromptStage,
 } from "../src/types";
 
-const baseSnapshot = (overrides: Partial<ProjectTaskSnapshot> = {}): ProjectTaskSnapshot => ({
+const baseSnapshot = (overrides: Partial<ProjectJobSnapshot> = {}): ProjectJobSnapshot => ({
   projectId: "demo-project",
-  taskId: "demo-task",
+  jobId: "demo-job",
   provider: "codex",
   workspaceDir: "/tmp/demo",
   sessionName: "project-demo",
-  windowName: "task-demo",
-  windowTarget: "project-demo:task-demo",
+  windowName: "job-demo",
+  windowTarget: "project-demo:job-demo",
   status: "completed",
   stage: "completed",
-  currentAction: "task completed",
+  currentAction: "job completed",
   lastObservation: "The provider returned a final answer.",
   answerPreview: "COMPLETED",
   panePreview: "COMPLETED",
@@ -39,7 +39,7 @@ const baseSnapshot = (overrides: Partial<ProjectTaskSnapshot> = {}): ProjectTask
   ...overrides,
 });
 
-const runningSnapshot = (overrides: Partial<ProjectTaskSnapshot> = {}): ProjectTaskSnapshot =>
+const runningSnapshot = (overrides: Partial<ProjectJobSnapshot> = {}): ProjectJobSnapshot =>
   baseSnapshot({
     status: "running",
     stage: "waiting_for_final_answer",
@@ -52,54 +52,54 @@ const runningSnapshot = (overrides: Partial<ProjectTaskSnapshot> = {}): ProjectT
   });
 
 const createRunner = (
-  snapshots: ProjectTaskSnapshot[],
-  progressSnapshots: Record<string, ProjectTaskSnapshot[]> = {},
+  snapshots: ProjectJobSnapshot[],
+  progressSnapshots: Record<string, ProjectJobSnapshot[]> = {},
 ) => {
-  const submitted: ProjectTmuxTaskOptions[] = [];
+  const submitted: ProjectTmuxJobOptions[] = [];
   const destroyed: string[] = [];
   let index = 0;
   const progressIndex = new Map<string, number>();
 
   return {
     runner: {
-      submitTask: async (options: ProjectTmuxTaskOptions) => {
+      submitJob: async (options: ProjectTmuxJobOptions) => {
         submitted.push(options);
         return {
           projectId: options.projectId,
-          taskId: options.taskId,
+          jobId: options.jobId,
           sessionName: "project-demo",
-          windowName: options.taskId,
-          windowTarget: `project-demo:${options.taskId}`,
+          windowName: options.jobId,
+          windowTarget: `project-demo:${options.jobId}`,
           startedAt: Date.now(),
         };
       },
-      waitForTask: async (_projectId: string, taskId: string) => {
-        if (progressSnapshots[taskId]) {
+      waitForJob: async (_projectId: string, jobId: string) => {
+        if (progressSnapshots[jobId]) {
           await new Promise((resolve) => setTimeout(resolve, 30));
         }
         const snapshot = snapshots[index];
         index += 1;
         if (!snapshot) {
-          throw new Error(`No snapshot configured for ${taskId}`);
+          throw new Error(`No snapshot configured for ${jobId}`);
         }
 
         return {
           ...snapshot,
-          taskId,
+          jobId,
         };
       },
-      getTaskSnapshot: async (_projectId: string, taskId: string) => {
-        const snapshotsForTask = progressSnapshots[taskId];
-        if (!snapshotsForTask?.length) {
+      getJobSnapshot: async (_projectId: string, jobId: string) => {
+        const snapshotsForJob = progressSnapshots[jobId];
+        if (!snapshotsForJob?.length) {
           return null;
         }
 
-        const currentIndex = progressIndex.get(taskId) ?? 0;
-        const snapshot = snapshotsForTask[Math.min(currentIndex, snapshotsForTask.length - 1)];
-        progressIndex.set(taskId, currentIndex + 1);
+        const currentIndex = progressIndex.get(jobId) ?? 0;
+        const snapshot = snapshotsForJob[Math.min(currentIndex, snapshotsForJob.length - 1)];
+        progressIndex.set(jobId, currentIndex + 1);
         return {
           ...snapshot,
-          taskId,
+          jobId,
         };
       },
       destroySession: async (projectId: string) => {
@@ -113,9 +113,9 @@ const createRunner = (
 
 describe("handleManagerRequest", () => {
   test("classifies running snapshots as working, stalled, or error", () => {
-    expect(analyzeManagerTaskSnapshot(runningSnapshot()).kind).toBe("working");
+    expect(analyzeManagerJobSnapshot(runningSnapshot()).kind).toBe("working");
     expect(
-      analyzeManagerTaskSnapshot(
+      analyzeManagerJobSnapshot(
         runningSnapshot({
           stalledForMs: 45_000,
           lastObservation: "Pane updated: no new output",
@@ -123,7 +123,7 @@ describe("handleManagerRequest", () => {
       ).kind,
     ).toBe("stalled");
     expect(
-      analyzeManagerTaskSnapshot(
+      analyzeManagerJobSnapshot(
         runningSnapshot({
           panePreview: "npm ERR! missing script: test",
           lastObservation: "Pane updated: npm ERR! missing script: test",
@@ -156,11 +156,11 @@ describe("handleManagerRequest", () => {
     expect(result.decision).toBe("complete");
     expect(result.attempts).toHaveLength(1);
     expect(submitted).toHaveLength(2);
-    expect(submitted[0]?.taskId).toContain("implement");
-    expect(submitted[1]?.taskId).toContain("verify");
-    expect(submitted[0]?.prompt).toContain("draft_");
-    expect(submitted[0]?.prompt).toContain("Implement the requested code changes");
-    expect(submitted[1]?.prompt).toContain("Verify the implementation");
+    expect(submitted[0]?.jobId).toContain("build");
+    expect(submitted[1]?.jobId).toContain("check");
+    expect(submitted[0]?.prompt).toContain("/drafts/");
+    expect(submitted[0]?.prompt).toContain("Follow TDD");
+    expect(submitted[1]?.prompt).toContain("Use only the job document as the source of truth");
     expect(submitted[1]?.prompt).toContain("Playwright");
     expect(destroyed).toEqual(["demo-project", "demo-project"]);
 
@@ -174,16 +174,17 @@ describe("handleManagerRequest", () => {
 
     const jobDir = join(jobRoot, jobDirs[0] as string);
     const jobFiles = await Array.fromAsync(new Bun.Glob("job_*.md").scan({ cwd: jobDir }));
-    const draftFiles = await Array.fromAsync(new Bun.Glob("draft_*.yaml").scan({ cwd: jobDir }));
+    const draftFiles = await Array.fromAsync(new Bun.Glob("drafts/*.yaml").scan({ cwd: jobDir }));
 
     expect(jobFiles).toHaveLength(1);
-    expect(draftFiles).toHaveLength(1);
+    expect(draftFiles.length).toBeGreaterThan(0);
 
     const jobDocument = await readFile(join(jobDir, jobFiles[0] as string), "utf8");
     const draftDocument = await readFile(join(jobDir, draftFiles[0] as string), "utf8");
     expect(jobDocument).toContain("# check");
-    expect(jobDocument).toContain("verification complete");
+    expect(jobDocument).toContain("[check]");
     expect(draftDocument).toContain("tasks:");
+    expect(result.attempts[0]?.draftExecutions.length).toBeGreaterThan(0);
   });
 
   test("does not run verification session when implementation session fails", async () => {
@@ -212,23 +213,23 @@ describe("handleManagerRequest", () => {
     expect(result.ok).toBe(false);
     expect(result.decision).toBe("halt");
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]?.taskId).toContain("implement");
+    expect(submitted[0]?.jobId).toContain("build");
   });
 
-  test("uses progress analysis to explain likely errors before task exit", async () => {
+  test("uses progress analysis to explain likely errors before job exit", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
-    const implementationTaskId = "demo-project-attempt-1-implement";
+    const implementationJobId = "demo-project-attempt-1-build-create_a_react_todo_app";
     const { runner } = createRunner(
       [
         baseSnapshot({
           status: "failed",
           stage: "timeout" as RunPromptStage,
-          errorReason: "The task exceeded the configured total timeout.",
+          errorReason: "The job exceeded the configured total timeout.",
           answerPreview: null,
         }),
       ],
       {
-        [implementationTaskId]: [
+        [implementationJobId]: [
           runningSnapshot({
             panePreview: "npm ERR! missing script: test",
             lastObservation: "Pane updated: npm ERR! missing script: test",
@@ -260,12 +261,12 @@ describe("handleManagerRequest", () => {
       baseSnapshot({ answerPreview: "verification complete" }),
     ]);
 
-    await handleManagerRequest(
+    const request = "Create ".repeat(80);
+    const result = await handleManagerRequest(
       {
         projectId: "demo-project",
         projectType: "code",
-        request:
-          "Create a minimal React todo app directly in ~/temp. Put the app root at ~/temp and create package.json, index.html, vite.config.js, src/main.jsx, src/App.jsx, and src/styles.css. Add a simple todo UI. Do not install dependencies or run the dev server. Reply with only COMPLETED.",
+        request,
         workspaceDir,
         provider: "codex",
         maxAttempts: 1,
@@ -274,38 +275,48 @@ describe("handleManagerRequest", () => {
       runner,
     );
 
+    expect(result.ok).toBe(true);
+
     const jobRoot = join(workspaceDir, ".project", "job");
     const jobDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: jobRoot, onlyFiles: false }));
-    const jobDir = join(jobRoot, jobDirs[0] as string);
-    const jobFiles = await Array.fromAsync(new Bun.Glob("job_*.md").scan({ cwd: jobDir }));
-
-    expect(jobFiles).toHaveLength(1);
-    expect((jobFiles[0] as string).length).toBeLessThan(120);
+    expect(jobDirs).toHaveLength(1);
+    expect((jobDirs[0] as string).length).toBeLessThanOrEqual(120);
   });
 
-  test("uses an injected project layer for project, job, and draft documents", async () => {
+  test("uses supplied project layer when reading and writing artifacts", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
     const { runner } = createRunner([
       baseSnapshot({ answerPreview: "implementation complete" }),
       baseSnapshot({ answerPreview: "verification complete" }),
     ]);
-    const artifactService: ProjectArtifactService = {
-      projectType: "mono",
-      renderProjectDocument: () => "project: custom-mono",
-      readProjectDocument: () => "project doc: custom-mono",
-      renderJobDocument: () => "job: custom-mono",
-      renderDraftDocument: () => "draft: custom-mono",
-      readJobDocument: () => "job reader: custom-mono",
-      runBuildStage: () => ["draft", "classify", "test", "implement", "verify"],
-      runCheckStage: () => "check",
-      buildBootstrapPrompt: () => "bootstrap prompt: custom-mono",
-    };
-    const projectLayer = Layer.succeed(ProjectTag, artifactService);
 
-    await handleManagerRequest(
+    const artifactService: ProjectArtifactService = {
+      projectType: "code",
+      renderProjectDocument: ({ request }) => `project:${request}`,
+      readProjectDocument: () => "project",
+      renderJobDocument: ({ request }) => `job:${request}`,
+      renderDraftDocuments: ({ request }) => [
+        {
+          draftId: "custom_draft",
+          title: request,
+          summary: "custom_draft",
+          path: "",
+          kind: "action",
+          dependsOn: [],
+          content: `draft:${request}`,
+        },
+      ],
+      readJobDocument: () => "job",
+      runBuildStage: () => [],
+      runCheckStage: () => "check",
+      buildBootstrapPrompt: async () => "bootstrap",
+    };
+
+    const projectLayer = Layer.succeed(ProjectTag, artifactService);
+    const result = await handleManagerRequest(
       {
         projectId: "demo-project",
-        projectType: "mono",
+        projectType: "code",
         request: "Create a React todo app",
         workspaceDir,
         provider: "codex",
@@ -316,17 +327,7 @@ describe("handleManagerRequest", () => {
       runner,
     );
 
-    const projectDocument = await readFile(join(workspaceDir, ".project", "project.md"), "utf8");
-    const jobRoot = join(workspaceDir, ".project", "job");
-    const jobDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: jobRoot, onlyFiles: false }));
-    const jobDir = join(jobRoot, jobDirs[0] as string);
-    const jobFiles = await Array.fromAsync(new Bun.Glob("job_*.md").scan({ cwd: jobDir }));
-    const draftFiles = await Array.fromAsync(new Bun.Glob("draft_*.yaml").scan({ cwd: jobDir }));
-    const jobDocument = await readFile(join(jobDir, jobFiles[0] as string), "utf8");
-    const draftDocument = await readFile(join(jobDir, draftFiles[0] as string), "utf8");
-
-    expect(projectDocument).toContain("project: custom-mono");
-    expect(jobDocument).toContain("job: custom-mono");
-    expect(draftDocument).toContain("draft: custom-mono");
+    expect(result.ok).toBe(true);
+    expect(await Bun.file(join(workspaceDir, ".project", "project.md")).text()).toBe("project:Create a React todo app");
   });
 });

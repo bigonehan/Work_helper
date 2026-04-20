@@ -10,7 +10,7 @@ const CONFIG_PATH = join(process.cwd(), "assets", "configs", "config.yaml");
 export interface JobFilePaths {
   readonly jobDir: string;
   readonly jobFilePath: string;
-  readonly draftFilePath: string;
+  readonly draftsDir: string;
   readonly rgReportPath: string;
   readonly captureDir: string;
 }
@@ -45,13 +45,33 @@ export const buildProjectMetadataPath = (rootDir: string): string =>
 export const buildJobFilePaths = (rootDir: string, timestamp: string, summary: string): JobFilePaths => ({
   jobDir: join(rootDir, ".project", "job", timestamp),
   jobFilePath: join(rootDir, ".project", "job", timestamp, `job_${summary}.md`),
-  draftFilePath: join(rootDir, ".project", "job", timestamp, `draft_${summary}.yaml`),
+  draftsDir: join(rootDir, ".project", "job", timestamp, "drafts"),
   rgReportPath: join(rootDir, "evidence", "rg-report.txt"),
   captureDir: join(rootDir, PROJECT_CAPTURE_DIR),
 });
 
 export const loadTemplateAsset = async (templateName: "project.md" | "job.md" | "draft.yaml"): Promise<string> =>
   readFile(join(TEMPLATE_DIR, templateName), "utf8");
+
+export const getAgentWorkflowRules = async (agentsPath: string = join(process.cwd(), "AGENTS.md")): Promise<string> => {
+  const document = await readFile(agentsPath, "utf8");
+  const heading = "## Workflow Rules";
+  const start = document.indexOf(heading);
+  if (start === -1) {
+    throw new Error("AGENTS.md is missing the '## Workflow Rules' section.");
+  }
+
+  const sectionStart = start + heading.length;
+  const nextHeadingMatch = document.slice(sectionStart).match(/\n##\s+/);
+  const sectionEnd = nextHeadingMatch ? sectionStart + (nextHeadingMatch.index ?? 0) : document.length;
+  const section = document.slice(sectionStart, sectionEnd).trim();
+
+  if (!section.includes("`request -> init -> plan -> analyze -> build -> check`")) {
+    throw new Error("AGENTS.md Workflow Rules must define the stage order 'request -> init -> plan -> analyze -> build -> check'.");
+  }
+
+  return section;
+};
 
 interface CreateProjectMetadataInput {
   readonly name: string;

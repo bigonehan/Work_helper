@@ -31,13 +31,13 @@ describe("project artifact services", () => {
       summary: "게시물_삭제_기능_추가",
     };
 
-    const { projectDocument, jobDocument, draftDocument } = await Effect.runPromise(
+    const { projectDocument, jobDocument, drafts } = await Effect.runPromise(
       Effect.gen(function* () {
         const service = yield* ProjectTag;
         return {
           projectDocument: yield* Effect.sync(() => service.renderProjectDocument(context)),
           jobDocument: yield* Effect.sync(() => service.renderJobDocument(context)),
-          draftDocument: yield* Effect.sync(() => service.renderDraftDocument(context)),
+          drafts: yield* Effect.promise(() => Promise.resolve(service.renderDraftDocuments(context))),
         };
       }).pipe(Effect.provide(createProjectLayerForType("code"))),
     );
@@ -45,7 +45,8 @@ describe("project artifact services", () => {
     expect(projectDocument).toContain("## type");
     expect(projectDocument).toContain("code");
     expect(jobDocument).toContain("#requirements");
-    expect(draftDocument).toContain("tasks:");
+    expect(drafts.length).toBeGreaterThan(0);
+    expect(drafts[0]?.content).toContain("tasks:");
   });
 
   test("project layer is also used for job reader, build, and check", async () => {
@@ -60,7 +61,7 @@ describe("project artifact services", () => {
     );
 
     expect(jobContents).toContain("/tmp/sample-job.md");
-    expect(buildSubstages).toEqual(["draft", "classify", "test", "implement", "verify"]);
+    expect(buildSubstages).toEqual(["implement"]);
     expect(checkStage).toBe("check");
   });
 });

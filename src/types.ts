@@ -62,11 +62,11 @@ export interface RunPromptResult {
   readonly diagnostics: RunPromptDiagnostics;
 }
 
-export type ProjectTaskStatus = "queued" | "waiting" | "running" | "completed" | "failed";
+export type ProjectJobStatus = "queued" | "waiting" | "running" | "completed" | "failed";
 
-export interface ProjectTmuxTaskOptions {
+export interface ProjectTmuxJobOptions {
   readonly projectId: string;
-  readonly taskId: string;
+  readonly jobId: string;
   readonly provider: Provider;
   readonly prompt: string;
   readonly workspaceDir: string;
@@ -81,24 +81,24 @@ export interface ProjectTmuxTaskOptions {
   readonly answerValidator?: ((answer: string) => string | null) | undefined;
 }
 
-export interface ProjectTaskHandle {
+export interface ProjectJobHandle {
   readonly projectId: string;
-  readonly taskId: string;
+  readonly jobId: string;
   readonly sessionName: string;
   readonly windowName: string;
   readonly windowTarget: string;
   readonly startedAt: number;
 }
 
-export interface ProjectTaskSnapshot {
+export interface ProjectJobSnapshot {
   readonly projectId: string;
-  readonly taskId: string;
+  readonly jobId: string;
   readonly provider: Provider;
   readonly workspaceDir: string;
   readonly sessionName: string;
   readonly windowName: string;
   readonly windowTarget: string;
-  readonly status: ProjectTaskStatus;
+  readonly status: ProjectJobStatus;
   readonly stage: RunPromptStage;
   readonly currentAction: string;
   readonly lastObservation: string;
@@ -116,7 +116,7 @@ export interface ProjectTaskSnapshot {
   readonly validationError: string | null;
 }
 
-export type ProjectTaskListItem = ProjectTaskSnapshot;
+export type ProjectJobListItem = ProjectJobSnapshot;
 
 export type ManagerDecision = "complete" | "retry" | "halt";
 
@@ -135,12 +135,22 @@ export interface ProjectArtifactContext {
   readonly summary: string;
 }
 
+export interface ManagerDraftArtifact {
+  readonly draftId: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly path: string;
+  readonly kind: "calc" | "action";
+  readonly dependsOn: readonly string[];
+  readonly content: string;
+}
+
 export interface ProjectArtifactService {
   readonly projectType: ProjectType;
   readonly renderProjectDocument: (context: ProjectArtifactContext) => Promise<string> | string;
   readonly readProjectDocument: (projectFilePath: string) => Promise<string> | string;
   readonly renderJobDocument: (context: ProjectArtifactContext) => Promise<string> | string;
-  readonly renderDraftDocument: (context: ProjectArtifactContext) => Promise<string> | string;
+  readonly renderDraftDocuments: (context: ProjectArtifactContext) => Promise<readonly ManagerDraftArtifact[]> | readonly ManagerDraftArtifact[];
   readonly readJobDocument: (jobFilePath: string) => Promise<string> | string;
   readonly runBuildStage: (logger: (message: string) => void) => readonly string[];
   readonly runCheckStage: (logger: (message: string) => void) => string;
@@ -151,23 +161,35 @@ export interface ProjectArtifactService {
   }) => Promise<string> | string;
 }
 
-export type ManagerTaskAssessmentKind = "working" | "stalled" | "error" | "failed";
+export type ManagerJobAssessmentKind = "working" | "stalled" | "error" | "failed";
 
-export interface ManagerTaskAssessment {
-  readonly kind: ManagerTaskAssessmentKind;
+export interface ManagerJobAssessment {
+  readonly kind: ManagerJobAssessmentKind;
   readonly reason: string;
+}
+
+export interface ManagerDraftExecution {
+  readonly draftId: string;
+  readonly jobId: string;
+  readonly kind: "calc" | "action";
+  readonly dependsOn: readonly string[];
+  readonly snapshot: ProjectJobSnapshot;
+  readonly providerClaimedCompletion: boolean;
+  readonly jobAssessment: ManagerJobAssessment | null;
 }
 
 export interface ManagerAttemptRecord {
   readonly attempt: number;
-  readonly taskId: string;
+  readonly jobId: string;
   readonly prompt: string;
-  readonly snapshot: ProjectTaskSnapshot;
+  readonly snapshot: ProjectJobSnapshot;
   readonly providerClaimedCompletion: boolean;
   readonly verification: ManagerVerificationResult | null;
-  readonly taskAssessment: ManagerTaskAssessment | null;
+  readonly jobAssessment: ManagerJobAssessment | null;
   readonly decision: ManagerDecision;
   readonly reason: string;
+  readonly draftExecutions: readonly ManagerDraftExecution[];
+  readonly checkJobId: string | null;
 }
 
 export interface ManagerRequest {
@@ -191,7 +213,7 @@ export interface ManagerRequest {
         context: Pick<ManagerRequest, "projectId" | "request" | "workspaceDir" | "provider"> & {
           readonly attempt: number;
           readonly answer: string | null;
-          readonly snapshot: ProjectTaskSnapshot;
+          readonly snapshot: ProjectJobSnapshot;
         },
       ) => Promise<ManagerVerificationResult> | ManagerVerificationResult)
     | undefined;
@@ -207,5 +229,5 @@ export interface ManagerResult {
   readonly decision: ManagerDecision;
   readonly reason: string;
   readonly finalAnswer: string | null;
-  readonly finalSnapshot: ProjectTaskSnapshot | null;
+  readonly finalSnapshot: ProjectJobSnapshot | null;
 }

@@ -3,15 +3,16 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   destroyProjectTmuxSession,
-  getProjectTaskSnapshot,
-  submitProjectTaskToTmux,
-  waitForProjectTask,
+  getProjectJobSnapshot,
+  submitProjectJobToTmux,
+  waitForProjectJob,
 } from "./projectManager";
 import { ProjectTag, createProjectLayerForType } from "./server/artifacts";
 import {
   buildJobFilePaths,
   buildProjectMetadataPath,
   formatJobTimestamp,
+  getAgentWorkflowRules,
   getConfig,
   getConfigValue,
   inferProjectSpec,
@@ -20,27 +21,43 @@ import {
 import type {
   ManagerAttemptRecord,
   ManagerDecision,
+  ManagerDraftArtifact,
+  ManagerDraftExecution,
+  ManagerJobAssessment,
   ManagerRequest,
   ManagerResult,
-  ManagerTaskAssessment,
   ManagerVerificationResult,
   ProjectArtifactService,
-  ProjectTaskHandle,
-  ProjectTaskSnapshot,
-  ProjectTmuxTaskOptions,
+  ProjectJobHandle,
+  ProjectJobSnapshot,
+  ProjectTmuxJobOptions,
 } from "./types";
 
-interface ManagerTaskRunner {
-  readonly submitTask: (options: ProjectTmuxTaskOptions) => Promise<ProjectTaskHandle>;
-  readonly waitForTask: (projectId: string, taskId: string) => Promise<ProjectTaskSnapshot>;
-  readonly getTaskSnapshot: (projectId: string, taskId: string) => Promise<ProjectTaskSnapshot | null>;
+interface ManagerJobRunner {
+  readonly submitJob: (options: ProjectTmuxJobOptions) => Promise<ProjectJobHandle>;
+  readonly waitForJob: (projectId: string, jobId: string) => Promise<ProjectJobSnapshot>;
+  readonly getJobSnapshot: (projectId: string, jobId: string) => Promise<ProjectJobSnapshot | null>;
   readonly destroySession: (projectId: string) => Promise<void>;
 }
 
-const defaultTaskRunner: ManagerTaskRunner = {
-  submitTask: (options) => Effect.runPromise(submitProjectTaskToTmux(options)),
-  waitForTask: (projectId, taskId) => Effect.runPromise(waitForProjectTask(projectId, taskId)),
-  getTaskSnapshot: (projectId, taskId) => Effect.runPromise(getProjectTaskSnapshot(projectId, taskId)),
+interface ManagerPromptPolicies {
+  readonly testFirstPolicy: string;
+  readonly uiMobileCheck: string;
+  readonly workflowGuide: string;
+}
+
+interface AttemptArtifacts {
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly projectFilePath: string;
+  readonly jobFilePath: string;
+  readonly drafts: readonly ManagerDraftArtifact[];
+}
+
+const defaultJobRunner: ManagerJobRunner = {
+  submitJob: (options) => Effect.runPromise(submitProjectJobToTmux(options)),
+  waitForJob: (projectId, jobId) => Effect.runPromise(waitForProjectJob(projectId, jobId)),
+  getJobSnapshot: (projectId, jobId) => Effect.runPromise(getProjectJobSnapshot(projectId, jobId)),
   destroySession: (projectId) => Effect.runPromise(destroyProjectTmuxSession(projectId)),
 };
 
@@ -52,69 +69,145 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const providerCompletedPattern = /\b(completed|complete|done|finished|success)\b|완료/iu;
 
-interface AttemptArtifacts {
-  readonly timestamp: string;
-  readonly summary: string;
-  readonly projectFilePath: string;
-  readonly jobFilePath: string;
-  readonly draftFilePath: string;
-}
-
-function buildTaskId(projectId: string, attempt: number, kind: "implement" | "verify"): string {
-  return `${sanitize(projectId)}-attempt-${attempt}-${kind}`;
+function buildJobId(projectId: string, attempt: number, kind: "build" | "check", suffix: string): string {
+  return `${sanitize(projectId)}-attempt-${attempt}-${kind}-${suffix}`;
 }
 
 function sanitize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "default";
 }
 
-function buildImplementationPrompt(
-  request: string,
+function buildDraftExecutionPrompt(
   artifacts: AttemptArtifacts,
+  draft: ManagerDraftArtifact,
   policies: ManagerPromptPolicies,
 ): string {
   return [
-    "You are executing an implementation task through tmux.",
-    "Implement the requested code changes using the draft file as the source of truth.",
-    "Do not perform the final verification run in this session.",
-    "Prefer direct file edits or shell commands.",
-    "Return exactly COMPLETED on a single line only after the code changes are finished.",
+    "You are executing a build job through tmux.",
+    "Use only the assigned draft document as the implementation source of truth.",
+    "Follow TDD: write or update unit tests first, then implement the code.",
+    "Run the relevant unit tests inside this session and do not finish until they pass.",
+    "Do not perform the final browser-level or integration-level check in this session.",
+    "Return exactly COMPLETED on a single line only after implementation and unit-test pass are finished.",
     "",
-    `Project metadata: ${artifacts.projectFilePath}`,
-    `Job document: ${artifacts.jobFilePath}`,
-    `Draft document: ${artifacts.draftFilePath}`,
+    `Draft document: ${draft.path}`,
+    `Draft kind: ${draft.kind}`,
+    `Draft dependencies: ${draft.dependsOn.join(", ") || "none"}`,
     `Policy: ${policies.testFirstPolicy}`,
-    `User request: ${request}`,
+    `Workflow: ${policies.workflowGuide}`,
   ].join("\n");
 }
 
-function buildVerificationPrompt(
-  request: string,
-  artifacts: AttemptArtifacts,
-  policies: ManagerPromptPolicies,
-): string {
+function buildCheckPrompt(artifacts: AttemptArtifacts, policies: ManagerPromptPolicies): string {
   return [
-    "You are executing a verification task through tmux.",
-    "Verify the implementation described by the draft file.",
-    "Run the relevant tests and app checks without changing the requested feature scope.",
-    "For UI-related work, use Playwright to open the browser and check the mobile layout for visual breakage.",
-    "Return exactly COMPLETED on a single line only after verification is finished.",
+    "You are executing a final check job through tmux.",
+    "Use only the job document as the source of truth for the requested outcome.",
+    "Verify whether the request described in the job document is actually fulfilled in the workspace.",
+    "When relevant, start the app or temporary server, use Playwright, simulate user actions, inspect logs or messages, and capture screenshots.",
+    "Decide whether the request is complete or still needs more work based on real execution evidence.",
+    "Return exactly COMPLETED on a single line only after the final check is finished.",
     "",
-    `Project metadata: ${artifacts.projectFilePath}`,
     `Job document: ${artifacts.jobFilePath}`,
-    `Draft document: ${artifacts.draftFilePath}`,
     `Policy: ${policies.uiMobileCheck}`,
-    `User request: ${request}`,
+    `Workflow: ${policies.workflowGuide}`,
   ].join("\n");
 }
 
-interface ManagerPromptPolicies {
-  readonly testFirstPolicy: string;
-  readonly uiMobileCheck: string;
+function didProviderClaimCompletion(answer: string | null): boolean {
+  if (!answer) {
+    return false;
+  }
+
+  return providerCompletedPattern.test(answer);
+}
+
+function buildDraftExecutionBatches(drafts: readonly ManagerDraftArtifact[]): ManagerDraftArtifact[][] {
+  const remaining = new Map(drafts.map((draft) => [draft.draftId, draft]));
+  const completed = new Set<string>();
+  const batches: ManagerDraftArtifact[][] = [];
+
+  while (remaining.size > 0) {
+    const ready = [...remaining.values()].filter((draft) => draft.dependsOn.every((dependency) => completed.has(dependency)));
+    if (ready.length === 0) {
+      throw new Error(`Draft dependency cycle detected: ${[...remaining.keys()].join(", ")}`);
+    }
+
+    const calcDrafts = ready.filter((draft) => draft.kind === "calc");
+    const actionDrafts = ready.filter((draft) => draft.kind === "action");
+
+    if (calcDrafts.length > 0) {
+      batches.push(calcDrafts);
+      for (const draft of calcDrafts) {
+        remaining.delete(draft.draftId);
+        completed.add(draft.draftId);
+      }
+    }
+
+    for (const draft of actionDrafts) {
+      batches.push([draft]);
+      remaining.delete(draft.draftId);
+      completed.add(draft.draftId);
+    }
+  }
+
+  return batches;
+}
+
+async function dispatchManagerJobToTmux(
+  runner: ManagerJobRunner,
+  request: ManagerRequest,
+  jobId: string,
+  prompt: string,
+): Promise<{ snapshot: ProjectJobSnapshot; jobAssessment: ManagerJobAssessment | null }> {
+  await runner.submitJob({
+    projectId: request.projectId,
+    jobId,
+    provider: request.provider,
+    prompt,
+    workspaceDir: request.workspaceDir,
+    debugLogging: request.debugLogging,
+    totalTimeoutMs: request.totalTimeoutMs,
+    firstOutputTimeoutMs: request.firstOutputTimeoutMs,
+    responseTimeoutMs: request.responseTimeoutMs,
+    pollIntervalMs: request.pollIntervalMs,
+    stableAnswerWindowMs: request.stableAnswerWindowMs,
+    preserveWindowOnFailure: request.preserveWindowOnFailure,
+  });
+
+  return monitorManagerJob(runner, request.projectId, jobId);
+}
+
+async function executeDraftBatch(
+  runner: ManagerJobRunner,
+  request: ManagerRequest,
+  attempt: number,
+  artifacts: AttemptArtifacts,
+  drafts: readonly ManagerDraftArtifact[],
+  policies: ManagerPromptPolicies,
+): Promise<ManagerDraftExecution[]> {
+  const executions = await Promise.all(
+    drafts.map(async (draft) => {
+      const jobId = buildJobId(request.projectId, attempt, "build", draft.summary);
+      const prompt = buildDraftExecutionPrompt(artifacts, draft, policies);
+      const result = await dispatchManagerJobToTmux(runner, request, jobId, prompt);
+
+      return {
+        draftId: draft.draftId,
+        jobId,
+        kind: draft.kind,
+        dependsOn: draft.dependsOn,
+        snapshot: result.snapshot,
+        providerClaimedCompletion: didProviderClaimCompletion(result.snapshot.answerPreview),
+        jobAssessment: result.jobAssessment,
+      } satisfies ManagerDraftExecution;
+    }),
+  );
+
+  return executions;
 }
 
 function classifyManagerDecision(
-  snapshot: ProjectTaskSnapshot,
+  snapshot: ProjectJobSnapshot,
   providerClaimedCompletion: boolean,
   verification: ManagerVerificationResult | null,
   isLastAttempt: boolean,
@@ -122,7 +215,7 @@ function classifyManagerDecision(
   if (snapshot.status !== "completed") {
     return {
       decision: isLastAttempt ? "halt" : "retry",
-      reason: snapshot.errorReason ?? `tmux task ended with status ${snapshot.status}`,
+      reason: snapshot.errorReason ?? `tmux job ended with status ${snapshot.status}`,
     };
   }
 
@@ -149,52 +242,20 @@ function classifyManagerDecision(
 
   return {
     decision: "complete",
-    reason: verification?.summary ?? "Provider reported completion and verification passed.",
+    reason: verification?.summary ?? "Provider reported completion and final check passed.",
   };
-}
-
-async function dispatchManagerAttemptToTmux(
-  runner: ManagerTaskRunner,
-  request: ManagerRequest,
-  taskId: string,
-  prompt: string,
-): Promise<{ snapshot: ProjectTaskSnapshot; taskAssessment: ManagerTaskAssessment | null }> {
-  await runner.submitTask({
-    projectId: request.projectId,
-    taskId,
-    provider: request.provider,
-    prompt,
-    workspaceDir: request.workspaceDir,
-    debugLogging: request.debugLogging,
-    totalTimeoutMs: request.totalTimeoutMs,
-    firstOutputTimeoutMs: request.firstOutputTimeoutMs,
-    responseTimeoutMs: request.responseTimeoutMs,
-    pollIntervalMs: request.pollIntervalMs,
-    stableAnswerWindowMs: request.stableAnswerWindowMs,
-    preserveWindowOnFailure: request.preserveWindowOnFailure,
-  });
-
-  return monitorManagerTask(runner, request.projectId, taskId);
-}
-
-function didProviderClaimCompletion(answer: string | null): boolean {
-  if (!answer) {
-    return false;
-  }
-
-  return providerCompletedPattern.test(answer);
 }
 
 export const handleManagerRequest = async (
   input: ManagerRequest,
-  runner: ManagerTaskRunner = defaultTaskRunner,
+  runner: ManagerJobRunner = defaultJobRunner,
 ): Promise<ManagerResult> => {
   return Effect.runPromise(handleManagerRequestEffect(input, runner).pipe(Effect.provide(resolveProjectLayer(input))));
 };
 
 export const handleManagerRequestEffect = (
   input: ManagerRequest,
-  runner: ManagerTaskRunner = defaultTaskRunner,
+  runner: ManagerJobRunner = defaultJobRunner,
 ) =>
   Effect.gen(function* () {
     const artifactService = yield* ProjectTag;
@@ -203,7 +264,7 @@ export const handleManagerRequestEffect = (
 
 const handleManagerRequestWithProject = async (
   input: ManagerRequest,
-  runner: ManagerTaskRunner,
+  runner: ManagerJobRunner,
   artifactService: ProjectArtifactService,
 ): Promise<ManagerResult> => {
   const request: ManagerRequest = { ...defaultOptions, ...input };
@@ -216,32 +277,48 @@ const handleManagerRequestWithProject = async (
   try {
     for (let attempt = 1; attempt <= (request.maxAttempts ?? defaultOptions.maxAttempts); attempt += 1) {
       const artifacts = await ensureAttemptArtifacts(request, attempt, artifactService);
-      const implementationTaskId = buildTaskId(request.projectId, attempt, "implement");
-      const implementationPrompt = buildImplementationPrompt(request.request, artifacts, policies);
-      const implementationResult = await dispatchManagerAttemptToTmux(
-        runner,
-        request,
-        implementationTaskId,
-        implementationPrompt,
-      );
-      const implementationSnapshot = implementationResult.snapshot;
+      const draftExecutions: ManagerDraftExecution[] = [];
+      const batches = buildDraftExecutionBatches(artifacts.drafts);
 
-      if (implementationSnapshot.status !== "completed") {
-        await appendJobCheckResult(artifacts.jobFilePath, implementationSnapshot.answerPreview ?? implementationSnapshot.errorReason ?? "implementation failed");
+      let failedBuildExecution: ManagerDraftExecution | null = null;
+      for (const batch of batches) {
+        const executions = await executeDraftBatch(runner, request, attempt, artifacts, batch, policies);
+        draftExecutions.push(...executions);
+
+        for (const execution of executions) {
+          await appendJobCheckResult(
+            artifacts.jobFilePath,
+            `[build:${execution.draftId}] ${execution.snapshot.answerPreview ?? execution.snapshot.errorReason ?? execution.snapshot.status}`,
+          );
+
+          if (execution.snapshot.status !== "completed") {
+            failedBuildExecution = execution;
+            break;
+          }
+        }
+
+        if (failedBuildExecution) {
+          break;
+        }
+      }
+
+      if (failedBuildExecution) {
         const reason =
-          implementationResult.taskAssessment?.reason ??
-          implementationSnapshot.errorReason ??
-          `tmux task ended with status ${implementationSnapshot.status}`;
+          failedBuildExecution.jobAssessment?.reason ??
+          failedBuildExecution.snapshot.errorReason ??
+          `tmux job ended with status ${failedBuildExecution.snapshot.status}`;
         const record: ManagerAttemptRecord = {
           attempt,
-          taskId: implementationTaskId,
-          prompt: implementationPrompt,
-          snapshot: implementationSnapshot,
-          providerClaimedCompletion: didProviderClaimCompletion(implementationSnapshot.answerPreview),
+          jobId: failedBuildExecution.jobId,
+          prompt: "build batch failed",
+          snapshot: failedBuildExecution.snapshot,
+          providerClaimedCompletion: failedBuildExecution.providerClaimedCompletion,
           verification: null,
-          taskAssessment: implementationResult.taskAssessment,
+          jobAssessment: failedBuildExecution.jobAssessment,
           decision: attempt === (request.maxAttempts ?? defaultOptions.maxAttempts) ? "halt" : "retry",
           reason,
+          draftExecutions,
+          checkJobId: null,
         };
         attempts.push(record);
 
@@ -255,18 +332,18 @@ const handleManagerRequestWithProject = async (
             attempts,
             decision: record.decision,
             reason,
-            finalAnswer: implementationSnapshot.answerPreview,
-            finalSnapshot: implementationSnapshot,
+            finalAnswer: failedBuildExecution.snapshot.answerPreview,
+            finalSnapshot: failedBuildExecution.snapshot,
           };
         }
 
         continue;
       }
 
-      const verificationTaskId = buildTaskId(request.projectId, attempt, "verify");
-      const verificationPrompt = buildVerificationPrompt(request.request, artifacts, policies);
-      const verificationResult = await dispatchManagerAttemptToTmux(runner, request, verificationTaskId, verificationPrompt);
-      const snapshot = verificationResult.snapshot;
+      const checkJobId = buildJobId(request.projectId, attempt, "check", "final");
+      const checkPrompt = buildCheckPrompt(artifacts, policies);
+      const checkResult = await dispatchManagerJobToTmux(runner, request, checkJobId, checkPrompt);
+      const snapshot = checkResult.snapshot;
       const providerClaimedCompletion = didProviderClaimCompletion(snapshot.answerPreview);
       const verification =
         snapshot.status === "completed" && request.verifyCompletion
@@ -282,7 +359,7 @@ const handleManagerRequestWithProject = async (
           : null;
       await appendJobCheckResult(
         artifacts.jobFilePath,
-        snapshot.answerPreview ?? snapshot.errorReason ?? "verification finished without message",
+        `[check] ${snapshot.answerPreview ?? snapshot.errorReason ?? "final check finished without message"}`,
       );
       const { decision, reason } = classifyManagerDecision(
         snapshot,
@@ -293,14 +370,16 @@ const handleManagerRequestWithProject = async (
 
       const record: ManagerAttemptRecord = {
         attempt,
-        taskId: verificationTaskId,
-        prompt: verificationPrompt,
+        jobId: checkJobId,
+        prompt: checkPrompt,
         snapshot,
         providerClaimedCompletion,
         verification,
-        taskAssessment: verificationResult.taskAssessment,
+        jobAssessment: checkResult.jobAssessment,
         decision,
-        reason: verificationResult.taskAssessment?.kind === "error" ? verificationResult.taskAssessment.reason : reason,
+        reason: checkResult.jobAssessment?.kind === "error" ? checkResult.jobAssessment.reason : reason,
+        draftExecutions,
+        checkJobId,
       };
       attempts.push(record);
 
@@ -404,12 +483,14 @@ export const createReactTodoAppVerifier =
 
 async function loadPromptPolicies(): Promise<ManagerPromptPolicies> {
   const config = await getConfig();
+  const workflowGuide = await getAgentWorkflowRules();
   return {
     testFirstPolicy:
       getConfigValue(config, "testFirstPolicy") ?? "Write unit tests before implementation for changes and new features.",
     uiMobileCheck:
       getConfigValue(config, "uiMobileCheck") ??
       "Use Playwright to open the browser in mobile mode and check for broken layout.",
+    workflowGuide,
   };
 }
 
@@ -425,6 +506,7 @@ async function ensureAttemptArtifacts(
 
   await mkdir(join(request.workspaceDir, ".project"), { recursive: true });
   await mkdir(filePaths.jobDir, { recursive: true });
+  await mkdir(filePaths.draftsDir, { recursive: true });
   await mkdir(join(request.workspaceDir, "evidence"), { recursive: true });
   await mkdir(filePaths.captureDir, { recursive: true });
 
@@ -440,14 +522,30 @@ async function ensureAttemptArtifacts(
 
   await writeFile(projectFilePath, await artifactService.renderProjectDocument(artifactContext), "utf8");
   await writeFile(filePaths.jobFilePath, await artifactService.renderJobDocument(artifactContext), "utf8");
-  await writeFile(filePaths.draftFilePath, await artifactService.renderDraftDocument(artifactContext), "utf8");
+
+  const draftSeeds = await Promise.resolve(artifactService.renderDraftDocuments(artifactContext));
+  const drafts = await Promise.all(
+    draftSeeds.map(async (draft, index) => {
+      const safeDraftSummary = toSnakeCaseSummary(draft.summary).slice(0, 48).replace(/_+$/g, "") || `draft_${index + 1}`;
+      const filePath = join(filePaths.draftsDir, `${String(index + 1).padStart(2, "0")}_${safeDraftSummary}.yaml`);
+      await writeFile(filePath, draft.content, "utf8");
+      return {
+        ...draft,
+        path: filePath,
+      } satisfies ManagerDraftArtifact;
+    }),
+  );
+  await appendJobCheckResult(
+    filePaths.jobFilePath,
+    `[analyze] generated drafts: ${drafts.map((draft) => `${draft.draftId}:${draft.kind}`).join(", ")}`,
+  );
 
   return {
     timestamp,
     summary,
     projectFilePath,
     jobFilePath: filePaths.jobFilePath,
-    draftFilePath: filePaths.draftFilePath,
+    drafts,
   };
 }
 
@@ -465,13 +563,13 @@ async function appendJobCheckResult(jobFilePath: string, message: string): Promi
   await writeFile(jobFilePath, `${existing}\n- ${normalized}\n`, "utf8");
 }
 
-async function monitorManagerTask(
-  runner: ManagerTaskRunner,
+async function monitorManagerJob(
+  runner: ManagerJobRunner,
   projectId: string,
-  taskId: string,
-): Promise<{ snapshot: ProjectTaskSnapshot; taskAssessment: ManagerTaskAssessment | null }> {
-  const finalPromise = runner.waitForTask(projectId, taskId);
-  let lastAssessment: ManagerTaskAssessment | null = null;
+  jobId: string,
+): Promise<{ snapshot: ProjectJobSnapshot; jobAssessment: ManagerJobAssessment | null }> {
+  const finalPromise = runner.waitForJob(projectId, jobId);
+  let lastAssessment: ManagerJobAssessment | null = null;
 
   while (true) {
     const result = await Promise.race([
@@ -482,13 +580,13 @@ async function monitorManagerTask(
     if (result.done) {
       return {
         snapshot: result.snapshot,
-        taskAssessment: analyzeManagerTaskSnapshot(result.snapshot, lastAssessment),
+        jobAssessment: analyzeManagerJobSnapshot(result.snapshot, lastAssessment),
       };
     }
 
-    const currentSnapshot = await runner.getTaskSnapshot(projectId, taskId);
+    const currentSnapshot = await runner.getJobSnapshot(projectId, jobId);
     if (currentSnapshot) {
-      lastAssessment = analyzeManagerTaskSnapshot(currentSnapshot, lastAssessment);
+      lastAssessment = analyzeManagerJobSnapshot(currentSnapshot, lastAssessment);
     }
   }
 }
@@ -504,10 +602,10 @@ const errorSignalPatterns = [
   /failed/iu,
 ];
 
-export const analyzeManagerTaskSnapshot = (
-  snapshot: ProjectTaskSnapshot,
-  previousAssessment: ManagerTaskAssessment | null = null,
-): ManagerTaskAssessment => {
+export const analyzeManagerJobSnapshot = (
+  snapshot: ProjectJobSnapshot,
+  previousAssessment: ManagerJobAssessment | null = null,
+): ManagerJobAssessment => {
   if (snapshot.status === "failed") {
     if (previousAssessment && (previousAssessment.kind === "error" || previousAssessment.kind === "stalled")) {
       return previousAssessment;
@@ -515,7 +613,7 @@ export const analyzeManagerTaskSnapshot = (
 
     return {
       kind: "failed",
-      reason: snapshot.errorReason ?? snapshot.lastObservation ?? "The task failed without a detailed error.",
+      reason: snapshot.errorReason ?? snapshot.lastObservation ?? "The job failed without a detailed error.",
     };
   }
 
@@ -524,26 +622,26 @@ export const analyzeManagerTaskSnapshot = (
   if (matchingErrorPattern) {
     return {
       kind: "error",
-      reason: snapshot.lastObservation || combinedOutput.trim().split("\n").slice(-1)[0] || "The task emitted error output while running.",
+      reason: snapshot.lastObservation || combinedOutput.trim().split("\n").slice(-1)[0] || "The job emitted error output while running.",
     };
   }
 
   if (snapshot.status === "running" && snapshot.stalledForMs > 30_000) {
     return {
       kind: "stalled",
-      reason: `The task appears stalled for ${snapshot.stalledForMs}ms. Last observation: ${snapshot.lastObservation}`,
+      reason: `The job appears stalled for ${snapshot.stalledForMs}ms. Last observation: ${snapshot.lastObservation}`,
     };
   }
 
   if (snapshot.status === "running" || snapshot.status === "waiting") {
     return {
       kind: "working",
-      reason: snapshot.currentAction || snapshot.lastObservation || previousAssessment?.reason || "The task is still making progress.",
+      reason: snapshot.currentAction || snapshot.lastObservation || previousAssessment?.reason || "The job is still making progress.",
     };
   }
 
   return previousAssessment ?? {
     kind: "working",
-    reason: snapshot.lastObservation || "The task is still being monitored.",
+    reason: snapshot.lastObservation || "The job is still being monitored.",
   };
 };

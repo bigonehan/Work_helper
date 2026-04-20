@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { waitForProjectTask, submitProjectTaskToTmux, destroyProjectTmuxSession } from "./projectManager";
+import { waitForProjectJob, submitProjectJobToTmux, destroyProjectTmuxSession } from "./projectManager";
 import { ProjectTag, createProjectLayerForType } from "./server/artifacts";
 import { buildProjectMetadataPath, parseProjectMetadataDocument } from "./server/project";
-import type { ManagerVerificationResult, ProjectSpec, ProjectTaskSnapshot, ProjectType, Provider } from "./types";
+import type { ManagerVerificationResult, ProjectJobSnapshot, ProjectSpec, ProjectType, Provider } from "./types";
 
 export interface BootstrapMetadata {
   readonly type: ProjectType;
@@ -82,19 +82,19 @@ export const bootstrapProject = async (input: {
   readonly totalTimeoutMs?: number;
   readonly firstOutputTimeoutMs?: number;
   readonly responseTimeoutMs?: number;
-}): Promise<ProjectTaskSnapshot> => {
+}): Promise<ProjectJobSnapshot> => {
   const metadata = await readProjectBootstrapMetadata(input.workspaceDir);
   const prompt = await buildBootstrapPrompt({
     workspaceDir: input.workspaceDir,
     projectType: metadata.type,
     projectSpec: metadata.spec,
   });
-  const taskId = `bootstrap-${metadata.spec}`;
+  const jobId = `bootstrap-${metadata.spec}`;
 
   await Effect.runPromise(
-    submitProjectTaskToTmux({
+    submitProjectJobToTmux({
       projectId: input.projectId,
-      taskId,
+      jobId,
       provider: input.provider,
       prompt,
       workspaceDir: input.workspaceDir,
@@ -107,7 +107,7 @@ export const bootstrapProject = async (input: {
   );
 
   try {
-    return await Effect.runPromise(waitForProjectTask(input.projectId, taskId));
+    return await Effect.runPromise(waitForProjectJob(input.projectId, jobId));
   } finally {
     await Effect.runPromise(destroyProjectTmuxSession(input.projectId));
   }

@@ -11,6 +11,7 @@ import {
   createProjectMetadataDocument,
   detectLegacyRemovalRequest,
   formatJobTimestamp,
+  getAgentWorkflowRules,
   getConfig,
   getConfigValue,
   inferProjectSpec,
@@ -47,7 +48,7 @@ describe("server project helpers", () => {
     expect(buildJobFilePaths(rootDir, "260416_1345", "게시물_삭제")).toEqual({
       jobDir: join(rootDir, ".project", "job", "260416_1345"),
       jobFilePath: join(rootDir, ".project", "job", "260416_1345", "job_게시물_삭제.md"),
-      draftFilePath: join(rootDir, ".project", "job", "260416_1345", "draft_게시물_삭제.yaml"),
+      draftsDir: join(rootDir, ".project", "job", "260416_1345", "drafts"),
       rgReportPath: join(rootDir, "evidence", "rg-report.txt"),
       captureDir: join(rootDir, PROJECT_CAPTURE_DIR),
     });
@@ -72,6 +73,14 @@ describe("server project helpers", () => {
 
   test("reads a config value directly from config.yaml", async () => {
     await expect(readConfigValue("frontendFramework")).resolves.toBe("next.js");
+  });
+
+  test("reads workflow rules from AGENTS.md without fallback", async () => {
+    const workflowRules = await getAgentWorkflowRules();
+
+    expect(workflowRules).toContain("`request -> init -> plan -> analyze -> build -> check`");
+    expect(workflowRules).toContain("`job.md`");
+    expect(workflowRules).toContain("`drafts.yaml`");
   });
 
   test("sets a config value in a target config file", async () => {

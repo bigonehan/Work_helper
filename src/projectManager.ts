@@ -13,11 +13,11 @@ import {
   targetExists,
 } from "./tmux";
 import type {
-  ProjectTaskHandle,
-  ProjectTaskListItem,
-  ProjectTaskSnapshot,
-  ProjectTaskStatus,
-  ProjectTmuxTaskOptions,
+  ProjectJobHandle,
+  ProjectJobListItem,
+  ProjectJobSnapshot,
+  ProjectJobStatus,
+  ProjectTmuxJobOptions,
   Provider,
   RunPromptStage,
 } from "./types";
@@ -33,9 +33,9 @@ const defaultOptions = {
   preserveWindowOnFailure: false,
 } as const;
 
-interface ResolvedTaskOptions {
+interface ResolvedJobOptions {
   projectId: string;
-  taskId: string;
+  jobId: string;
   provider: Provider;
   prompt: string;
   workspaceDir: string;
@@ -47,7 +47,7 @@ interface ResolvedTaskOptions {
   pollIntervalMs: number;
   stableAnswerWindowMs: number;
   preserveWindowOnFailure: boolean;
-  answerValidator?: ProjectTmuxTaskOptions["answerValidator"];
+  answerValidator?: ProjectTmuxJobOptions["answerValidator"];
 }
 
 interface ProjectSessionRecord {
@@ -56,9 +56,9 @@ interface ProjectSessionRecord {
   sessionName: string;
 }
 
-interface TaskRecord {
+interface JobRecord {
   projectId: string;
-  taskId: string;
+  jobId: string;
   provider: Provider;
   prompt: string;
   workspaceDir: string;
@@ -66,7 +66,7 @@ interface TaskRecord {
   windowName: string;
   windowTarget: string;
   marker: string;
-  status: ProjectTaskStatus;
+  status: ProjectJobStatus;
   stage: RunPromptStage;
   currentAction: string;
   lastObservation: string;
@@ -83,21 +83,21 @@ interface TaskRecord {
   completedAt: number | null;
   timeoutMs: number;
   lastPaneChangeAt: number;
-  resultPromise: Promise<ProjectTaskSnapshot>;
+  resultPromise: Promise<ProjectJobSnapshot>;
 }
 
 const sessions = new Map<string, ProjectSessionRecord>();
-const tasks = new Map<string, TaskRecord>();
+const jobs = new Map<string, JobRecord>();
 
 const makeSessionName = (projectId: string) => `project-${sanitize(projectId)}`;
-const makeWindowName = (taskId: string) => `task-${sanitize(taskId)}-${Date.now().toString(36)}`;
-const makeTaskKey = (projectId: string, taskId: string) => `${projectId}::${taskId}`;
+const makeWindowName = (jobId: string) => `job-${sanitize(jobId)}-${Date.now().toString(36)}`;
+const makeJobKey = (projectId: string, jobId: string) => `${projectId}::${jobId}`;
 
 function sanitize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "default";
 }
 
-function taskStatusFromStage(stage: RunPromptStage): ProjectTaskStatus {
+function jobStatusFromStage(stage: RunPromptStage): ProjectJobStatus {
   switch (stage) {
     case "completed":
       return "completed";
@@ -118,20 +118,20 @@ function taskStatusFromStage(stage: RunPromptStage): ProjectTaskStatus {
 }
 
 function currentActionForStage(stage: RunPromptStage, markerSeen: boolean): string {
-  if (stage === "starting") return "starting tmux task";
+  if (stage === "starting") return "starting tmux job";
   if (stage === "waiting_for_first_output") return "waiting for provider output";
   if (stage === "waiting_for_final_answer") {
     return markerSeen ? "parsing provider completion" : "provider is still generating";
   }
 
-  if (stage === "completed") return "task completed";
-  return "task failed";
+  if (stage === "completed") return "job completed";
+  return "job failed";
 }
 
-function toSnapshot(record: TaskRecord): ProjectTaskSnapshot {
+function toSnapshot(record: JobRecord): ProjectJobSnapshot {
   return {
     projectId: record.projectId,
-    taskId: record.taskId,
+    jobId: record.jobId,
     provider: record.provider,
     workspaceDir: record.workspaceDir,
     sessionName: record.sessionName,
@@ -156,7 +156,7 @@ function toSnapshot(record: TaskRecord): ProjectTaskSnapshot {
   };
 }
 
-function updateRecord(record: TaskRecord, patch: Partial<TaskRecord>): void {
+function updateRecord(record: JobRecord, patch: Partial<JobRecord>): void {
   Object.assign(record, patch, { updatedAt: Date.now() });
 }
 
@@ -183,19 +183,19 @@ export const ensureProjectTmuxSession = (projectId: string, workspaceDir: string
     return record;
   });
 
-export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
-  Effect.promise(async (): Promise<ProjectTaskHandle> => {
-    const options: ResolvedTaskOptions = { ...defaultOptions, ...input };
-    const taskKey = makeTaskKey(options.projectId, options.taskId);
-    if (tasks.has(taskKey)) {
-      throw new Error(`Task already exists: ${taskKey}`);
+export const submitProjectJobToTmux = (input: ProjectTmuxJobOptions) =>
+  Effect.promise(async (): Promise<ProjectJobHandle> => {
+    const options: ResolvedJobOptions = { ...defaultOptions, ...input };
+    const jobKey = makeJobKey(options.projectId, options.jobId);
+    if (jobs.has(jobKey)) {
+      throw new Error(`Job already exists: ${jobKey}`);
     }
 
     const session = await Effect.runPromise(ensureProjectTmuxSession(options.projectId, options.workspaceDir));
-    const marker = `__WORK_HELPER_EXIT__${sanitize(options.projectId)}_${sanitize(options.taskId)}_${Date.now().toString(36)}`;
+    const marker = `__WORK_HELPER_EXIT__${sanitize(options.projectId)}_${sanitize(options.jobId)}_${Date.now().toString(36)}`;
     const prompt = await resolvePrompt(options.prompt, options.promptFilePath);
     const providerCommand = buildProviderCommand(options.provider, prompt, options.workspaceDir, marker);
-    const windowName = makeWindowName(options.taskId);
+    const windowName = makeWindowName(options.jobId);
     await logTmuxPromptDispatch(options.debugLogging, {
       scope: "projectManager.dispatch",
       target: `${session.sessionName}:${windowName}`,
@@ -205,13 +205,13 @@ export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
     });
     const created = await createWindow(session.sessionName, windowName, providerCommand.argv);
     if (created.exitCode !== 0) {
-      throw new Error(created.stderr.trim() || created.stdout.trim() || "Failed to create task window.");
+      throw new Error(created.stderr.trim() || created.stdout.trim() || "Failed to create job window.");
     }
 
     const startedAt = Date.now();
-    const record: TaskRecord = {
+    const record: JobRecord = {
       projectId: options.projectId,
-      taskId: options.taskId,
+      jobId: options.jobId,
       provider: options.provider,
       prompt,
       workspaceDir: options.workspaceDir,
@@ -221,8 +221,8 @@ export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
       marker,
       status: "queued",
       stage: "starting",
-      currentAction: "starting tmux task",
-      lastObservation: "Task submitted to tmux window.",
+      currentAction: "starting tmux job",
+      lastObservation: "Job submitted to tmux window.",
       panePreview: "",
       answerPreview: null,
       markerSeen: false,
@@ -238,12 +238,12 @@ export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
       lastPaneChangeAt: startedAt,
       resultPromise: Promise.resolve(undefined as never),
     };
-    tasks.set(taskKey, record);
-    record.resultPromise = monitorTask(record, options);
+    jobs.set(jobKey, record);
+    record.resultPromise = monitorJob(record, options);
 
     return {
       projectId: options.projectId,
-      taskId: options.taskId,
+      jobId: options.jobId,
       sessionName: record.sessionName,
       windowName: record.windowName,
       windowTarget: record.windowTarget,
@@ -251,7 +251,7 @@ export const submitProjectTaskToTmux = (input: ProjectTmuxTaskOptions) =>
     };
   });
 
-async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Promise<ProjectTaskSnapshot> {
+async function monitorJob(record: JobRecord, options: ResolvedJobOptions): Promise<ProjectJobSnapshot> {
   const startDeadline = record.startedAt + options.totalTimeoutMs;
   const firstOutputDeadline = record.startedAt + options.firstOutputTimeoutMs;
   const responseDeadline = record.startedAt + options.responseTimeoutMs;
@@ -293,38 +293,38 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
       const answer = extractAnswer(options.provider, options.prompt, record.panePreview, record.marker);
       updateRecord(record, {
         stage,
-        status: taskStatusFromStage(stage),
+        status: jobStatusFromStage(stage),
         currentAction: currentActionForStage(stage, markerSeen),
         markerSeen,
         exitCode,
         answerPreview: answer,
       });
 
-        if (answer) {
-          const validationError = options.answerValidator?.(answer) ?? null;
-          if (validationError) {
-            if (markerSeen) {
-              finishTask(record, "answer_validation_failed", validationError);
-              await logTmuxPromptCompletion(options.debugLogging, {
-                scope: "projectManager.completed",
-                target: record.windowTarget,
-                provider: record.provider,
-                workspaceDir: record.workspaceDir,
-                prompt: record.prompt,
-                answer,
-                status: "failed",
-                stage: "answer_validation_failed",
-                reason: validationError,
-              });
-              return cleanupAndSnapshot(record, options);
-            }
+      if (answer) {
+        const validationError = options.answerValidator?.(answer) ?? null;
+        if (validationError) {
+          if (markerSeen) {
+            finishJob(record, "answer_validation_failed", validationError);
+            await logTmuxPromptCompletion(options.debugLogging, {
+              scope: "projectManager.completed",
+              target: record.windowTarget,
+              provider: record.provider,
+              workspaceDir: record.workspaceDir,
+              prompt: record.prompt,
+              answer,
+              status: "failed",
+              stage: "answer_validation_failed",
+              reason: validationError,
+            });
+            return cleanupAndSnapshot(record, options);
+          }
 
           updateRecord(record, {
             validationError,
             lastObservation: `Answer candidate rejected by validator: ${validationError}`,
           });
         } else if (markerSeen || Date.now() - record.lastPaneChangeAt >= options.stableAnswerWindowMs) {
-          finishTask(
+          finishJob(
             record,
             "completed",
             markerSeen
@@ -348,7 +348,7 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
 
       if (!alive) {
         const failure = classifyFailure(record.panePreview, stage, markerSeen, alive);
-        finishTask(record, failure.stage, failure.reason);
+        finishJob(record, failure.stage, failure.reason);
         await logTmuxPromptCompletion(options.debugLogging, {
           scope: "projectManager.completed",
           target: record.windowTarget,
@@ -365,7 +365,7 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
 
       if (record.firstOutputAt === null && Date.now() > firstOutputDeadline) {
         const failure = classifyFailure(record.panePreview, "waiting_for_first_output", markerSeen, alive);
-        finishTask(record, failure.stage, failure.reason);
+        finishJob(record, failure.stage, failure.reason);
         await logTmuxPromptCompletion(options.debugLogging, {
           scope: "projectManager.completed",
           target: record.windowTarget,
@@ -382,7 +382,7 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
 
       if (record.firstOutputAt !== null && Date.now() > responseDeadline) {
         const failure = classifyFailure(record.panePreview, "waiting_for_final_answer", markerSeen, alive);
-        finishTask(record, failure.stage, failure.reason);
+        finishJob(record, failure.stage, failure.reason);
         await logTmuxPromptCompletion(options.debugLogging, {
           scope: "projectManager.completed",
           target: record.windowTarget,
@@ -400,7 +400,7 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
       await sleep(options.pollIntervalMs);
     }
 
-    finishTask(record, "timeout", "The task exceeded the configured total timeout.");
+    finishJob(record, "timeout", "The job exceeded the configured total timeout.");
     await logTmuxPromptCompletion(options.debugLogging, {
       scope: "projectManager.completed",
       target: record.windowTarget,
@@ -410,11 +410,11 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
       answer: record.answerPreview,
       status: "failed",
       stage: "timeout",
-      reason: "The task exceeded the configured total timeout.",
+      reason: "The job exceeded the configured total timeout.",
     });
     return cleanupAndSnapshot(record, options);
   } catch (error) {
-    finishTask(record, "tmux_start_failed", error instanceof Error ? error.message : String(error));
+    finishJob(record, "tmux_start_failed", error instanceof Error ? error.message : String(error));
     await logTmuxPromptCompletion(options.debugLogging, {
       scope: "projectManager.completed",
       target: record.windowTarget,
@@ -430,11 +430,11 @@ async function monitorTask(record: TaskRecord, options: ResolvedTaskOptions): Pr
   }
 }
 
-function finishTask(record: TaskRecord, stage: RunPromptStage, reason: string): void {
+function finishJob(record: JobRecord, stage: RunPromptStage, reason: string): void {
   const completedAt = Date.now();
   updateRecord(record, {
     stage,
-    status: taskStatusFromStage(stage),
+    status: jobStatusFromStage(stage),
     currentAction: currentActionForStage(stage, record.markerSeen),
     errorReason: stage === "completed" ? null : reason,
     validationError: stage === "answer_validation_failed" ? reason : record.validationError,
@@ -444,7 +444,7 @@ function finishTask(record: TaskRecord, stage: RunPromptStage, reason: string): 
   });
 }
 
-async function cleanupAndSnapshot(record: TaskRecord, options: ResolvedTaskOptions): Promise<ProjectTaskSnapshot> {
+async function cleanupAndSnapshot(record: JobRecord, options: ResolvedJobOptions): Promise<ProjectJobSnapshot> {
   if ((record.status === "completed" || !options.preserveWindowOnFailure) && (await targetExists(record.windowTarget))) {
     await killWindow(record.windowTarget);
   }
@@ -452,24 +452,24 @@ async function cleanupAndSnapshot(record: TaskRecord, options: ResolvedTaskOptio
   return toSnapshot(record);
 }
 
-export const getProjectTaskSnapshot = (projectId: string, taskId: string) =>
-  Effect.sync((): ProjectTaskSnapshot | null => {
-    const record = tasks.get(makeTaskKey(projectId, taskId));
+export const getProjectJobSnapshot = (projectId: string, jobId: string) =>
+  Effect.sync((): ProjectJobSnapshot | null => {
+    const record = jobs.get(makeJobKey(projectId, jobId));
     return record ? toSnapshot(record) : null;
   });
 
-export const listProjectTasks = (projectId?: string) =>
-  Effect.sync((): ProjectTaskListItem[] =>
-    [...tasks.values()]
-      .filter((task) => (projectId ? task.projectId === projectId : true))
-      .map((task) => toSnapshot(task)),
+export const listProjectJobs = (projectId?: string) =>
+  Effect.sync((): ProjectJobListItem[] =>
+    [...jobs.values()]
+      .filter((job) => (projectId ? job.projectId === projectId : true))
+      .map((job) => toSnapshot(job)),
   );
 
-export const waitForProjectTask = (projectId: string, taskId: string) =>
-  Effect.promise(async (): Promise<ProjectTaskSnapshot> => {
-    const record = tasks.get(makeTaskKey(projectId, taskId));
+export const waitForProjectJob = (projectId: string, jobId: string) =>
+  Effect.promise(async (): Promise<ProjectJobSnapshot> => {
+    const record = jobs.get(makeJobKey(projectId, jobId));
     if (!record) {
-      throw new Error(`Task not found: ${projectId}/${taskId}`);
+      throw new Error(`Job not found: ${projectId}/${jobId}`);
     }
 
     return record.resultPromise;

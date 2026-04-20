@@ -4,12 +4,13 @@ import {
   BuildSubstage,
   ProjectStage,
   ProjectTransition,
+  runAnalyzeStage,
   runBuildStageEffect,
   runBuildStage,
   runCheckStageEffect,
   runCheckStage,
-  runDecompileStage,
   runInitStage,
+  runPlanStage,
   runProjectPipeline,
   runRequestStage,
 } from "../src/main";
@@ -20,7 +21,8 @@ describe("project pipeline", () => {
   test("defines the fixed project stages", () => {
     expect(String(ProjectStage.Request)).toBe("request");
     expect(String(ProjectStage.Init)).toBe("init");
-    expect(String(ProjectStage.Decompile)).toBe("decompile");
+    expect(String(ProjectStage.Plan)).toBe("plan");
+    expect(String(ProjectStage.Analyze)).toBe("analyze");
     expect(String(ProjectStage.Build)).toBe("build");
     expect(String(ProjectStage.Check)).toBe("check");
   });
@@ -30,13 +32,10 @@ describe("project pipeline", () => {
     expect(String(ProjectTransition.RequestToImportProject)).toBe("request->import-project");
     expect(String(ProjectTransition.RequestToPlan)).toBe("request->plan");
     expect(String(ProjectTransition.RequestToCheck)).toBe("request->check");
-    expect(String(ProjectTransition.PlanToDecompile)).toBe("plan->disassemble");
-    expect(String(ProjectTransition.DecompileToBuildDraft)).toBe("disassemble->build:draft");
-    expect(String(BuildSubstage.Draft)).toBe("draft");
-    expect(String(BuildSubstage.Classify)).toBe("classify");
-    expect(String(BuildSubstage.Test)).toBe("test");
+    expect(String(ProjectTransition.PlanToAnalyze)).toBe("plan->analyze");
+    expect(String(ProjectTransition.AnalyzeToBuild)).toBe("analyze->build");
+    expect(String(ProjectTransition.BuildToCheck)).toBe("build->check");
     expect(String(BuildSubstage.Implement)).toBe("implement");
-    expect(String(BuildSubstage.Verify)).toBe("verify");
   });
 
   test("request stage chooses check for explicit fix requests on existing projects", () => {
@@ -88,25 +87,12 @@ describe("project pipeline", () => {
     expect(result.transition).toBe(ProjectTransition.RequestToPlan);
   });
 
-  test("build stage runs all documented substages in order", () => {
+  test("build stage runs the documented implementation substage", () => {
     const logs: string[] = [];
     const result = runBuildStage((message) => logs.push(message));
 
-    expect(result).toEqual([
-      BuildSubstage.Draft,
-      BuildSubstage.Classify,
-      BuildSubstage.Test,
-      BuildSubstage.Implement,
-      BuildSubstage.Verify,
-    ]);
-    expect(logs).toEqual([
-      "build",
-      "build:draft",
-      "build:classify",
-      "build:test",
-      "build:implement",
-      "build:verify",
-    ]);
+    expect(result).toEqual([BuildSubstage.Implement]);
+    expect(logs).toEqual(["build", "build:implement"]);
   });
 
   test("pipeline runs request -> init for a new project", () => {
@@ -126,7 +112,7 @@ describe("project pipeline", () => {
     expect(logs).toEqual(["request", "request->init", "init"]);
   });
 
-  test("pipeline runs request -> plan -> decompile -> build -> check for feature work", () => {
+  test("pipeline runs request -> plan -> analyze -> build -> check for feature work", () => {
     const logs: string[] = [];
     const result = runProjectPipeline(
       {
@@ -140,40 +126,35 @@ describe("project pipeline", () => {
 
     expect(result.executedStages).toEqual([
       ProjectStage.Request,
-      ProjectStage.Decompile,
+      ProjectStage.Plan,
+      ProjectStage.Analyze,
       ProjectStage.Build,
       ProjectStage.Check,
     ]);
     expect(result.transitions).toEqual([
       ProjectTransition.RequestToPlan,
-      ProjectTransition.PlanToDecompile,
-      ProjectTransition.DecompileToBuildDraft,
-      ProjectTransition.BuildDraftToClassify,
-      ProjectTransition.BuildClassifyToTest,
-      ProjectTransition.BuildTestToImplement,
-      ProjectTransition.BuildImplementToVerify,
-      ProjectTransition.BuildVerifyToCheck,
+      ProjectTransition.PlanToAnalyze,
+      ProjectTransition.AnalyzeToBuild,
+      ProjectTransition.BuildToCheck,
     ]);
     expect(logs).toEqual([
       "request",
       "request->plan",
-      "plan->disassemble",
-      "decompile",
-      "disassemble->build:draft",
+      "plan",
+      "plan->analyze",
+      "analyze",
+      "analyze->build",
       "build",
-      "build:draft",
-      "build:classify",
-      "build:test",
       "build:implement",
-      "build:verify",
-      "build:verify->check",
+      "build->check",
       "check",
     ]);
   });
 
   test("individual stage helpers return their matching stage", () => {
     expect(runInitStage()).toBe(ProjectStage.Init);
-    expect(runDecompileStage()).toBe(ProjectStage.Decompile);
+    expect(runPlanStage()).toBe(ProjectStage.Plan);
+    expect(runAnalyzeStage()).toBe(ProjectStage.Analyze);
     expect(runCheckStage()).toBe(ProjectStage.Check);
   });
 
@@ -184,11 +165,11 @@ describe("project pipeline", () => {
       renderProjectDocument: () => "project",
       readProjectDocument: () => "project doc",
       renderJobDocument: () => "job",
-      renderDraftDocument: () => "draft",
+      renderDraftDocuments: () => [],
       readJobDocument: () => "job reader",
       runBuildStage: (logger) => {
         logger("custom-build");
-        return ["custom-draft", "custom-verify"];
+        return ["custom-implement"];
       },
       runCheckStage: (logger) => {
         logger("custom-check");
@@ -205,7 +186,7 @@ describe("project pipeline", () => {
       runCheckStageEffect((message) => messages.push(message)).pipe(Effect.provide(layer)),
     );
 
-    expect(overriddenBuild).toEqual(["custom-draft", "custom-verify"]);
+    expect(overriddenBuild).toEqual(["custom-implement"]);
     expect(overriddenCheck).toBe("custom-check");
     expect(messages).toEqual(["custom-build", "custom-check"]);
   });

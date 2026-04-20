@@ -3,9 +3,9 @@ import { Effect } from "effect";
 import {
   destroyProjectTmuxSession,
   ensureProjectTmuxSession,
-  getProjectTaskSnapshot,
-  submitProjectTaskToTmux,
-  waitForProjectTask,
+  getProjectJobSnapshot,
+  submitProjectJobToTmux,
+  waitForProjectJob,
 } from "../src/projectManager";
 import { createContainsAnyValidator } from "../src/validators";
 
@@ -24,7 +24,7 @@ const runWithRetries = async <T>(attempts: number, fn: () => Promise<T>): Promis
 };
 
 describe("projectManager", () => {
-  test("submits a Seoul tourism task and completes with recognizable locations", async () => {
+  test("submits a Seoul tourism job and completes with recognizable locations", async () => {
     await runWithRetries(3, async () => {
       const projectId = `seoul-demo-${Date.now().toString(36)}`;
 
@@ -32,9 +32,9 @@ describe("projectManager", () => {
         await Effect.runPromise(ensureProjectTmuxSession(projectId, process.cwd()));
 
         const handle = await Effect.runPromise(
-          submitProjectTaskToTmux({
+          submitProjectJobToTmux({
             projectId,
-            taskId: "seoul-tourism",
+            jobId: "seoul-tourism",
             provider: "codex",
             prompt: "서울 관광명소를 추천해줘",
             workspaceDir: process.cwd(),
@@ -50,11 +50,11 @@ describe("projectManager", () => {
           }),
         );
 
-        const snapshot = await Effect.runPromise(getProjectTaskSnapshot(projectId, handle.taskId));
+        const snapshot = await Effect.runPromise(getProjectJobSnapshot(projectId, handle.jobId));
         expect(snapshot).not.toBeNull();
         expect(snapshot?.sessionName).toContain("project-seoul-demo");
 
-        const finalSnapshot = await Effect.runPromise(waitForProjectTask(projectId, handle.taskId));
+        const finalSnapshot = await Effect.runPromise(waitForProjectJob(projectId, handle.jobId));
         expect(finalSnapshot.status).toBe("completed");
         expect(finalSnapshot.answerPreview).toBeString();
         expect(

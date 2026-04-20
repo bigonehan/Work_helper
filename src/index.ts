@@ -9,8 +9,9 @@ export {
   runBuildStage,
   runCheckStageEffect,
   runCheckStage,
-  runDecompileStage,
+  runAnalyzeStage,
   runInitStage,
+  runPlanStage,
   runRequestStage,
   runProjectPipeline,
 } from "./main";
@@ -23,6 +24,7 @@ export {
   createProjectMetadataDocument,
   detectLegacyRemovalRequest,
   formatJobTimestamp,
+  getAgentWorkflowRules,
   getConfig,
   getConfigValue,
   inferProjectSpec,
@@ -51,30 +53,34 @@ export {
 export { composePrompt, loadPromptTemplate, resolvePrompt } from "./prompts";
 export { createContainsAnyValidator } from "./validators";
 export { bootstrapProject, buildBootstrapPrompt, createBootstrapVerifier, readProjectBootstrapMetadata } from "./bootstrap";
-export { createReactTodoAppVerifier, handleManagerRequest, handleManagerRequestEffect } from "./manager";
+export { createReactTodoAppVerifier, handleManagerRequest, handleManagerRequestEffect, analyzeManagerJobSnapshot } from "./manager";
 export {
   destroyProjectTmuxSession,
   ensureProjectTmuxSession,
-  getProjectTaskSnapshot,
-  listProjectTasks,
-  submitProjectTaskToTmux,
-  waitForProjectTask,
+  getProjectJobSnapshot,
+  listProjectJobs,
+  submitProjectJobToTmux,
+  waitForProjectJob,
 } from "./projectManager";
 export type {
+  ManagerDraftArtifact,
+  ManagerDraftExecution,
   ManagerAttemptRecord,
   ManagerDecision,
+  ManagerJobAssessment,
+  ManagerJobAssessmentKind,
   ManagerRequest,
   ManagerResult,
   ManagerVerificationResult,
   ProjectArtifactContext,
   ProjectArtifactService,
+  ProjectJobHandle,
+  ProjectJobListItem,
+  ProjectJobSnapshot,
+  ProjectJobStatus,
   ProjectSpec,
+  ProjectTmuxJobOptions,
   ProjectType,
-  ProjectTaskHandle,
-  ProjectTaskListItem,
-  ProjectTaskSnapshot,
-  ProjectTaskStatus,
-  ProjectTmuxTaskOptions,
   Provider,
   RunPromptDiagnostics,
   RunPromptOptions,

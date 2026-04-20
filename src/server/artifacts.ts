@@ -1,15 +1,86 @@
 import { Context, Effect, Layer } from "effect";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { classifyRequirementItemKind, renderJobDocument, renderTasksDocument, TaskKind } from "./job";
-import { buildLegacyRemovalChecklist, createProjectMetadataDocument } from "./project";
+import { buildTaskDraft, classifyRequirementItemKind, renderJobDocument, renderTasksDocument, TaskKind } from "./job";
+import { buildLegacyRemovalChecklist, createProjectMetadataDocument, toSnakeCaseSummary } from "./project";
 import { loadPromptTemplate } from "../prompts";
-import type { ProjectArtifactService, ProjectType } from "../types";
+import type { ManagerDraftArtifact, ProjectArtifactService, ProjectType } from "../types";
 
 const defaultStatusText = "wait";
 const bootstrapPromptPath = join(process.cwd(), "assets", "basic", "prompts", "bootstrap.md");
 
 export const ProjectTag = Context.GenericTag<ProjectArtifactService>("@work_helper/Project");
+
+interface DraftSeed {
+  readonly title: string;
+  readonly kind: "calc" | "action";
+  readonly dependsOn: readonly string[];
+  readonly checks: readonly string[];
+}
+
+const inferDraftSeeds = (request: string): DraftSeed[] => {
+  const trimmed = request.trim();
+  if (!trimmed) {
+    return [
+      {
+        title: "request handling",
+        kind: "action",
+        dependsOn: [],
+        checks: ["unit test를 먼저 작성한다."],
+      },
+    ];
+  }
+
+  if (/(생일).*(메시지|알림)|(메시지|알림).*(생일)/u.test(trimmed)) {
+    return [
+      {
+        title: "birthday eligible members",
+        kind: "calc",
+        dependsOn: [],
+        checks: ["회원 생일 판단 로직에 대한 unit test를 먼저 작성한다."],
+      },
+      {
+        title: "birthday message delivery",
+        kind: "action",
+        dependsOn: ["birthday_eligible_members"],
+        checks: ["메시지 발송 동작에 대한 unit test를 먼저 작성한다."],
+      },
+    ];
+  }
+
+  const splitParts = trimmed
+    .split(/\s*(?:\+|그리고|및|and)\s*/iu)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (splitParts.length > 1) {
+    return splitParts.map((part, index) => ({
+      title: part,
+      kind: /(send|save|delete|create|update|전송|저장|삭제|생성|추가|수정)/iu.test(part) ? "action" : "calc",
+      dependsOn: index === 0 ? [] : [toSnakeCaseSummary(splitParts[index - 1] ?? "draft")],
+      checks: ["관련 unit test를 먼저 작성한다."],
+    }));
+  }
+
+  return [
+    {
+      title: trimmed,
+      kind: /(send|save|delete|create|update|전송|저장|삭제|생성|추가|수정|react|project)/iu.test(trimmed)
+        ? "action"
+        : "calc",
+      dependsOn: [],
+      checks: ["관련 unit test를 먼저 작성한다."],
+    },
+  ];
+};
+
+const renderDraftContent = (seed: DraftSeed): string =>
+  renderTasksDocument({
+    name: seed.title,
+    calc: seed.kind === "calc" ? [{ name: buildTaskDraft(seed.title), status: defaultStatusText }] : [],
+    action: seed.kind === "action" ? [{ name: buildTaskDraft(seed.title), status: defaultStatusText }] : [],
+    check: [...seed.checks, "세션 내부에서 unit test를 실행해 통과시킨다."],
+  });
 
 const createDefaultArtifactService = (projectType: ProjectType): ProjectArtifactService => ({
   projectType,
@@ -27,6 +98,7 @@ const createDefaultArtifactService = (projectType: ProjectType): ProjectArtifact
     const kind = classifyRequirementItemKind(context.request);
     const logicChecklist = [
       "테스트가 먼저 작성되었는지 확인한다.",
+      "analyze 단계에서 요청을 구현 단위 draft로 분해했는지 확인한다.",
       ...buildLegacyRemovalChecklist(context.request),
     ];
 
@@ -36,35 +108,36 @@ const createDefaultArtifactService = (projectType: ProjectType): ProjectArtifact
         {
           kind,
           name: context.request,
+          steps: [
+            "요청을 구현 가능한 draft 단위로 분해한다.",
+            "의존성에 따라 순차 또는 병렬 build 세션을 실행한다.",
+            "check 세션이 job.md만 보고 최종 동작을 검증한다.",
+          ],
         },
       ],
       logicChecklist,
-      uiChecklist: ["모바일 모드 화면 깨짐 여부를 검사한다."],
+      uiChecklist: ["모바일 모드 화면 깨짐 여부를 검사한다.", "UI 요청이면 Playwright로 실제 동작을 확인한다."],
       problems: [],
     });
   },
-  renderDraftDocument: (context) => {
-    const taskName = context.request.trim();
-    const taskKind = /(create|생성|추가|implement|todo|react|project)/iu.test(taskName) ? TaskKind.Action : TaskKind.Calc;
-    const draftTask = taskName ? `request > ${taskName}` : "input > output";
-
-    return renderTasksDocument({
-      name: taskName,
-      calc: taskKind === TaskKind.Calc ? [{ name: draftTask, status: defaultStatusText }] : [],
-      action: taskKind === TaskKind.Action ? [{ name: draftTask, status: defaultStatusText }] : [],
-      check: ["unit test를 먼저 작성한다.", "구현 후 검증 세션에서 결과를 점검한다."],
-    });
-  },
+  renderDraftDocuments: (context): readonly ManagerDraftArtifact[] =>
+    inferDraftSeeds(context.request).map((seed) => {
+      const draftId = toSnakeCaseSummary(seed.title);
+      return {
+        draftId,
+        title: seed.title,
+        summary: draftId,
+        path: "",
+        kind: seed.kind,
+        dependsOn: seed.dependsOn,
+        content: renderDraftContent(seed),
+      };
+    }),
   readJobDocument: (jobFilePath) => `job.md reader: ${jobFilePath}`,
   runBuildStage: (logger) => {
     logger("build");
-    const orderedSubstages = ["draft", "classify", "test", "implement", "verify"] as const;
-
-    for (const substage of orderedSubstages) {
-      logger(`build:${substage}`);
-    }
-
-    return [...orderedSubstages];
+    logger("build:implement");
+    return ["implement"];
   },
   runCheckStage: (logger) => {
     logger("check");
