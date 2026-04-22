@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import {
   BuildSubstage,
   ProjectStage,
   ProjectTransition,
+  RequestStageEntryError,
+  RequestStageInputSchema,
+  runRequestStageEffect,
   runAnalyzeStage,
   runBuildStageEffect,
   runBuildStage,
@@ -14,8 +17,8 @@ import {
   runProjectPipeline,
   runRequestStage,
 } from "../src/main";
-import { ProjectTag } from "../src/server/artifacts";
-import type { ProjectArtifactService } from "../src/types";
+import { MakeDraftTag, MakeJobTag, MakeProjectTag, ProjectTag, StageRuntimeTag, createProjectLayer } from "../src/server/artifacts";
+import type { MakeDraftService, MakeJobService, MakeProjectService, ProjectArtifactService, StageRuntimeService } from "../src/types";
 
 describe("project pipeline", () => {
   test("defines the fixed project stages", () => {
@@ -52,6 +55,20 @@ describe("project pipeline", () => {
 
     expect(result.transition).toBe(ProjectTransition.RequestToCheck);
     expect(logs).toEqual(["request", "request->check"]);
+  });
+
+  test("request stage exposes effect schema and tagged entry error", async () => {
+    const requestError = await Effect.runPromise(Effect.flip(runRequestStageEffect({})));
+    expect(requestError).toBeInstanceOf(RequestStageEntryError);
+    const decoded = Effect.runSync(
+      Schema.decodeUnknown(RequestStageInputSchema)({
+        request: "기능 추가",
+        hasProjectMetadata: true,
+        workspaceEmpty: false,
+        hasSourceFiles: true,
+      }),
+    );
+    expect(decoded.request).toBe("기능 추가");
   });
 
   test("request stage chooses init for empty workspaces without .project", () => {
@@ -177,7 +194,7 @@ describe("project pipeline", () => {
       },
       buildBootstrapPrompt: () => "bootstrap prompt",
     };
-    const layer = Layer.succeed(ProjectTag, customProject);
+    const layer = createProjectLayer(customProject);
 
     const overriddenBuild = Effect.runSync(
       runBuildStageEffect((message) => messages.push(message)).pipe(Effect.provide(layer)),
@@ -189,5 +206,52 @@ describe("project pipeline", () => {
     expect(overriddenBuild).toEqual(["custom-implement"]);
     expect(overriddenCheck).toBe("custom-check");
     expect(messages).toEqual(["custom-build", "custom-check"]);
+  });
+
+  test("individual provider tags can be overridden independently", async () => {
+    const makeProjectLayer = Layer.succeed(MakeProjectTag, {
+      projectType: "code",
+      makeProject: () => "project-doc",
+      readProject: () => "project-doc",
+    } satisfies MakeProjectService);
+    const makeJobLayer = Layer.succeed(MakeJobTag, {
+      projectType: "code",
+      makeJob: () => "job-doc",
+      readJob: () => "job-doc",
+    } satisfies MakeJobService);
+    const makeDraftLayer = Layer.succeed(MakeDraftTag, {
+      projectType: "code",
+      makeDraft: () => [],
+    } satisfies MakeDraftService);
+    const stageRuntimeLayer = Layer.succeed(StageRuntimeTag, {
+      projectType: "code",
+      runBuildStage: () => ["tag-build"],
+      runCheckStage: () => "tag-check",
+    } satisfies StageRuntimeService);
+    const projectLayer = Layer.succeed(ProjectTag, {
+      projectType: "code",
+      renderProjectDocument: () => "project-doc",
+      readProjectDocument: () => "project-doc",
+      renderJobDocument: () => "job-doc",
+      renderDraftDocuments: () => [],
+      readJobDocument: () => "job-doc",
+      runBuildStage: () => ["tag-build"],
+      runCheckStage: () => "tag-check",
+      buildBootstrapPrompt: () => "bootstrap-doc",
+    } satisfies ProjectArtifactService);
+
+    const buildResult = Effect.runSync(
+      runBuildStageEffect(() => {}).pipe(
+        Effect.provide(Layer.mergeAll(makeProjectLayer, makeJobLayer, makeDraftLayer, stageRuntimeLayer, projectLayer)),
+      ),
+    );
+    const checkResult = Effect.runSync(
+      runCheckStageEffect(() => {}).pipe(
+        Effect.provide(Layer.mergeAll(makeProjectLayer, makeJobLayer, makeDraftLayer, stageRuntimeLayer, projectLayer)),
+      ),
+    );
+
+    expect(buildResult).toEqual(["tag-build"]);
+    expect(checkResult).toBe("tag-check");
   });
 });

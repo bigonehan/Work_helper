@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { Layer } from "effect";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyzeManagerJobSnapshot, handleManagerRequest } from "../src/manager";
-import { ProjectTag } from "../src/server/artifacts";
+import { createProjectLayer } from "../src/server/artifacts";
 import type {
   ProjectArtifactService,
   ProjectJobSnapshot,
@@ -158,9 +157,12 @@ describe("handleManagerRequest", () => {
     expect(submitted).toHaveLength(2);
     expect(submitted[0]?.jobId).toContain("build");
     expect(submitted[1]?.jobId).toContain("check");
-    expect(submitted[0]?.prompt).toContain("/drafts/");
+    expect(submitted[0]?.prompt).toContain("/.project/job/");
     expect(submitted[0]?.prompt).toContain("Follow TDD");
+    expect(submitted[0]?.prompt).toContain("Draft priority:");
+    expect(submitted[0]?.prompt).toContain("Draft input:");
     expect(submitted[1]?.prompt).toContain("Use only the job document as the source of truth");
+    expect(submitted[1]?.prompt).toContain("effect_check");
     expect(submitted[1]?.prompt).toContain("Playwright");
     expect(destroyed).toEqual(["demo-project", "demo-project"]);
 
@@ -174,16 +176,21 @@ describe("handleManagerRequest", () => {
 
     const jobDir = join(jobRoot, jobDirs[0] as string);
     const jobFiles = await Array.fromAsync(new Bun.Glob("job_*.md").scan({ cwd: jobDir }));
-    const draftFiles = await Array.fromAsync(new Bun.Glob("drafts/*.yaml").scan({ cwd: jobDir }));
+    const draftDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: jobDir, onlyFiles: false }));
+    const draftDir = draftDirs.find((entry) => !String(entry).startsWith("job_"));
+    const draftFiles = await Array.fromAsync(new Bun.Glob("*.yaml").scan({ cwd: join(jobDir, String(draftDir)) }));
 
     expect(jobFiles).toHaveLength(1);
     expect(draftFiles.length).toBeGreaterThan(0);
+    expect(String(draftDir).length).toBeLessThanOrEqual(10);
 
     const jobDocument = await readFile(join(jobDir, jobFiles[0] as string), "utf8");
-    const draftDocument = await readFile(join(jobDir, draftFiles[0] as string), "utf8");
+    const draftDocument = await readFile(join(jobDir, String(draftDir), draftFiles[0] as string), "utf8");
     expect(jobDocument).toContain("# check");
     expect(jobDocument).toContain("[check]");
-    expect(draftDocument).toContain("tasks:");
+    expect(draftDocument).toContain("id:");
+    expect(draftDocument).toContain("priority:");
+    expect(draftDocument).toContain("dependsOn:");
     expect(result.attempts[0]?.draftExecutions.length).toBeGreaterThan(0);
   });
 
@@ -218,7 +225,7 @@ describe("handleManagerRequest", () => {
 
   test("uses progress analysis to explain likely errors before job exit", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
-    const implementationJobId = "demo-project-attempt-1-build-create_a_react_todo_app";
+    const implementationJobId = "demo-project-attempt-1-build-create_a_r";
     const { runner } = createRunner(
       [
         baseSnapshot({
@@ -301,7 +308,12 @@ describe("handleManagerRequest", () => {
           title: request,
           summary: "custom_draft",
           path: "",
+          input: ["request"],
+          output: ["custom output"],
+          test: ["custom test"],
+          priority: 1,
           kind: "action",
+          target: ["src/custom.ts"],
           dependsOn: [],
           content: `draft:${request}`,
         },
@@ -312,7 +324,7 @@ describe("handleManagerRequest", () => {
       buildBootstrapPrompt: async () => "bootstrap",
     };
 
-    const projectLayer = Layer.succeed(ProjectTag, artifactService);
+    const projectLayer = createProjectLayer(artifactService);
     const result = await handleManagerRequest(
       {
         projectId: "demo-project",

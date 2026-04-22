@@ -32,6 +32,32 @@ export const toSnakeCaseSummary = (value: string): string =>
     .replace(/^_+|_+$/g, "")
     .toLowerCase() || "job";
 
+export const toLimitedSnakeCase = (value: string, maxLength: number = 10, fallback: string = "draft"): string => {
+  const normalized = toSnakeCaseSummary(value);
+  const sliced = normalized.slice(0, maxLength).replace(/^_+|_+$/g, "").replace(/_+$/g, "");
+  return sliced || fallback.slice(0, maxLength);
+};
+
+export const buildUniqueTaskName = (value: string, usedNames: Set<string>, maxLength: number = 10): string => {
+  const base = toLimitedSnakeCase(value, maxLength, "draft");
+  if (!usedNames.has(base)) {
+    usedNames.add(base);
+    return base;
+  }
+
+  for (let index = 1; index < 100; index += 1) {
+    const suffix = `_${String(index).padStart(2, "0")}`;
+    const trimmedBase = base.slice(0, Math.max(1, maxLength - suffix.length)).replace(/_+$/g, "") || "d";
+    const candidate = `${trimmedBase}${suffix}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+  }
+
+  throw new Error(`Could not build a unique task name for '${value}'.`);
+};
+
 export const detectLegacyRemovalRequest = (request: string): boolean => /(전부|레거시\s*제거|모두)/u.test(request);
 
 export const buildLegacyRemovalChecklist = (request: string): string[] =>
@@ -45,7 +71,7 @@ export const buildProjectMetadataPath = (rootDir: string): string =>
 export const buildJobFilePaths = (rootDir: string, timestamp: string, summary: string): JobFilePaths => ({
   jobDir: join(rootDir, ".project", "job", timestamp),
   jobFilePath: join(rootDir, ".project", "job", timestamp, `job_${summary}.md`),
-  draftsDir: join(rootDir, ".project", "job", timestamp, "drafts"),
+  draftsDir: join(rootDir, ".project", "job", timestamp, summary),
   rgReportPath: join(rootDir, "evidence", "rg-report.txt"),
   captureDir: join(rootDir, PROJECT_CAPTURE_DIR),
 });

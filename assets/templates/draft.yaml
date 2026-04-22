@@ -1,5 +1,30 @@
-name: ""
-tasks:
-  calc: []
-  action: []
-check: []
+# id: draft 고유값
+id: sample
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - student.name
+  - student.age
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - age 연령대에 맞는 gift 문자열을 계산한다
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - 연령대 경계값에 대한 unit test를 먼저 작성한다
+  - 각 연령대가 기대 gift를 반환하는지 검증한다
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: calc
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - src/student.ts
+  - test/student.test.ts
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

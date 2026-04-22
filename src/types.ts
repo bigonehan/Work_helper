@@ -130,6 +130,7 @@ export interface ProjectArtifactContext {
   readonly projectType: ProjectType;
   readonly projectSpec: ProjectSpec;
   readonly request: string;
+  readonly jobDocument: string;
   readonly workspaceDir: string;
   readonly timestamp: string;
   readonly summary: string;
@@ -140,9 +141,46 @@ export interface ManagerDraftArtifact {
   readonly title: string;
   readonly summary: string;
   readonly path: string;
-  readonly kind: "calc" | "action";
+  readonly input: readonly string[];
+  readonly output: readonly string[];
+  readonly test: readonly string[];
+  readonly priority: number;
+  readonly kind: "calc" | "ui" | "i/o" | "action";
+  readonly target: readonly string[];
   readonly dependsOn: readonly string[];
   readonly content: string;
+}
+
+export interface MakeProjectService {
+  readonly projectType: ProjectType;
+  readonly makeProject: (context: ProjectArtifactContext) => Promise<string> | string;
+  readonly readProject: (projectFilePath: string) => Promise<string> | string;
+}
+
+export interface MakeJobService {
+  readonly projectType: ProjectType;
+  readonly makeJob: (context: ProjectArtifactContext) => Promise<string> | string;
+  readonly readJob: (jobFilePath: string) => Promise<string> | string;
+}
+
+export interface MakeDraftService {
+  readonly projectType: ProjectType;
+  readonly makeDraft: (context: ProjectArtifactContext) => Promise<readonly ManagerDraftArtifact[]> | readonly ManagerDraftArtifact[];
+}
+
+export interface BootstrapProjectService {
+  readonly projectType: ProjectType;
+  readonly bootstrapProject: (context: {
+    readonly projectType: ProjectType;
+    readonly projectSpec: ProjectSpec;
+    readonly workspaceDir: string;
+  }) => Promise<string> | string;
+}
+
+export interface StageRuntimeService {
+  readonly projectType: ProjectType;
+  readonly runBuildStage: (logger: (message: string) => void) => readonly string[];
+  readonly runCheckStage: (logger: (message: string) => void) => string;
 }
 
 export interface ProjectArtifactService {
@@ -171,7 +209,9 @@ export interface ManagerJobAssessment {
 export interface ManagerDraftExecution {
   readonly draftId: string;
   readonly jobId: string;
-  readonly kind: "calc" | "action";
+  readonly priority: number;
+  readonly kind: "calc" | "ui" | "i/o" | "action";
+  readonly target: readonly string[];
   readonly dependsOn: readonly string[];
   readonly snapshot: ProjectJobSnapshot;
   readonly providerClaimedCompletion: boolean;
@@ -198,7 +238,14 @@ export interface ManagerRequest {
   readonly request: string;
   readonly workspaceDir: string;
   readonly provider: Provider;
-  readonly projectLayer?: Layer.Layer<ProjectArtifactService>;
+  readonly projectLayer?: Layer.Layer<
+    | ProjectArtifactService
+    | MakeProjectService
+    | MakeJobService
+    | MakeDraftService
+    | BootstrapProjectService
+    | StageRuntimeService
+  >;
   readonly debugLogging?: boolean;
   readonly maxAttempts?: number;
   readonly totalTimeoutMs?: number;

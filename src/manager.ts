@@ -7,15 +7,17 @@ import {
   submitProjectJobToTmux,
   waitForProjectJob,
 } from "./projectManager";
-import { ProjectTag, createProjectLayerForType } from "./server/artifacts";
+import { MakeDraftTag, MakeJobTag, MakeProjectTag, ProjectTag, createProjectLayerForType } from "./server/artifacts";
 import {
   buildJobFilePaths,
+  buildUniqueTaskName,
   buildProjectMetadataPath,
   formatJobTimestamp,
   getAgentWorkflowRules,
   getConfig,
   getConfigValue,
   inferProjectSpec,
+  toLimitedSnakeCase,
   toSnakeCaseSummary,
 } from "./server/project";
 import type {
@@ -27,7 +29,7 @@ import type {
   ManagerRequest,
   ManagerResult,
   ManagerVerificationResult,
-  ProjectArtifactService,
+  ProjectArtifactContext,
   ProjectJobHandle,
   ProjectJobSnapshot,
   ProjectTmuxJobOptions,
@@ -91,7 +93,13 @@ function buildDraftExecutionPrompt(
     "Return exactly COMPLETED on a single line only after implementation and unit-test pass are finished.",
     "",
     `Draft document: ${draft.path}`,
+    `Draft id: ${draft.draftId}`,
+    `Draft priority: ${draft.priority}`,
     `Draft kind: ${draft.kind}`,
+    `Draft input: ${draft.input.join(", ") || "none"}`,
+    `Draft output: ${draft.output.join(", ") || "none"}`,
+    `Draft tests: ${draft.test.join(", ") || "none"}`,
+    `Draft targets: ${draft.target.join(", ") || "none"}`,
     `Draft dependencies: ${draft.dependsOn.join(", ") || "none"}`,
     `Policy: ${policies.testFirstPolicy}`,
     `Workflow: ${policies.workflowGuide}`,
@@ -103,6 +111,7 @@ function buildCheckPrompt(artifacts: AttemptArtifacts, policies: ManagerPromptPo
     "You are executing a final check job through tmux.",
     "Use only the job document as the source of truth for the requested outcome.",
     "Verify whether the request described in the job document is actually fulfilled in the workspace.",
+    "Use the effect_check skill guidance if it is available, and explicitly verify that the Effect TS schema, Context.Tag providers, and tagged stage-entry errors are wired correctly.",
     "When relevant, start the app or temporary server, use Playwright, simulate user actions, inspect logs or messages, and capture screenshots.",
     "Decide whether the request is complete or still needs more work based on real execution evidence.",
     "Return exactly COMPLETED on a single line only after the final check is finished.",
@@ -127,24 +136,17 @@ function buildDraftExecutionBatches(drafts: readonly ManagerDraftArtifact[]): Ma
   const batches: ManagerDraftArtifact[][] = [];
 
   while (remaining.size > 0) {
-    const ready = [...remaining.values()].filter((draft) => draft.dependsOn.every((dependency) => completed.has(dependency)));
+    const ready = [...remaining.values()]
+      .filter((draft) => draft.dependsOn.every((dependency) => completed.has(dependency)))
+      .sort((left, right) => left.priority - right.priority || left.kind.localeCompare(right.kind) || left.draftId.localeCompare(right.draftId));
     if (ready.length === 0) {
       throw new Error(`Draft dependency cycle detected: ${[...remaining.keys()].join(", ")}`);
     }
 
-    const calcDrafts = ready.filter((draft) => draft.kind === "calc");
-    const actionDrafts = ready.filter((draft) => draft.kind === "action");
-
-    if (calcDrafts.length > 0) {
-      batches.push(calcDrafts);
-      for (const draft of calcDrafts) {
-        remaining.delete(draft.draftId);
-        completed.add(draft.draftId);
-      }
-    }
-
-    for (const draft of actionDrafts) {
-      batches.push([draft]);
+    const nextPriority = ready[0]!.priority;
+    const batch = ready.filter((draft) => draft.priority === nextPriority);
+    batches.push(batch);
+    for (const draft of batch) {
       remaining.delete(draft.draftId);
       completed.add(draft.draftId);
     }
@@ -194,7 +196,9 @@ async function executeDraftBatch(
       return {
         draftId: draft.draftId,
         jobId,
+        priority: draft.priority,
         kind: draft.kind,
+        target: draft.target,
         dependsOn: draft.dependsOn,
         snapshot: result.snapshot,
         providerClaimedCompletion: didProviderClaimCompletion(result.snapshot.answerPreview),
@@ -258,14 +262,24 @@ export const handleManagerRequestEffect = (
   runner: ManagerJobRunner = defaultJobRunner,
 ) =>
   Effect.gen(function* () {
-    const artifactService = yield* ProjectTag;
-    return yield* Effect.promise(() => handleManagerRequestWithProject(input, runner, artifactService));
+    yield* ProjectTag;
+    const makeProject = yield* MakeProjectTag;
+    const makeJob = yield* MakeJobTag;
+    const makeDraft = yield* MakeDraftTag;
+    return yield* Effect.promise(() => handleManagerRequestWithProject(input, runner, makeProject, makeJob, makeDraft));
   });
 
 const handleManagerRequestWithProject = async (
   input: ManagerRequest,
   runner: ManagerJobRunner,
-  artifactService: ProjectArtifactService,
+  makeProjectService: { readonly makeProject: (context: ProjectArtifactContext) => Promise<string> | string },
+  makeJobService: {
+    readonly makeJob: (context: ProjectArtifactContext) => Promise<string> | string;
+    readonly readJob: (jobFilePath: string) => Promise<string> | string;
+  },
+  makeDraftService: {
+    readonly makeDraft: (context: ProjectArtifactContext) => Promise<readonly ManagerDraftArtifact[]> | readonly ManagerDraftArtifact[];
+  },
 ): Promise<ManagerResult> => {
   const request: ManagerRequest = { ...defaultOptions, ...input };
   const attempts: ManagerAttemptRecord[] = [];
@@ -276,7 +290,7 @@ const handleManagerRequestWithProject = async (
 
   try {
     for (let attempt = 1; attempt <= (request.maxAttempts ?? defaultOptions.maxAttempts); attempt += 1) {
-      const artifacts = await ensureAttemptArtifacts(request, attempt, artifactService);
+      const artifacts = await ensureAttemptArtifacts(request, attempt, makeProjectService, makeJobService, makeDraftService);
       const draftExecutions: ManagerDraftExecution[] = [];
       const batches = buildDraftExecutionBatches(artifacts.drafts);
 
@@ -497,10 +511,17 @@ async function loadPromptPolicies(): Promise<ManagerPromptPolicies> {
 async function ensureAttemptArtifacts(
   request: ManagerRequest,
   attempt: number,
-  artifactService: ProjectArtifactService,
+  makeProjectService: { readonly makeProject: (context: ProjectArtifactContext) => Promise<string> | string },
+  makeJobService: {
+    readonly makeJob: (context: ProjectArtifactContext) => Promise<string> | string;
+    readonly readJob: (jobFilePath: string) => Promise<string> | string;
+  },
+  makeDraftService: {
+    readonly makeDraft: (context: ProjectArtifactContext) => Promise<readonly ManagerDraftArtifact[]> | readonly ManagerDraftArtifact[];
+  },
 ): Promise<AttemptArtifacts> {
   const timestamp = formatJobTimestamp(new Date(Date.now() + attempt * 60_000));
-  const summary = toSafeSummary(request.request);
+  const summary = toLimitedSnakeCase(request.request, 10, "job");
   const projectFilePath = buildProjectMetadataPath(request.workspaceDir);
   const filePaths = buildJobFilePaths(request.workspaceDir, timestamp, summary);
 
@@ -515,19 +536,28 @@ async function ensureAttemptArtifacts(
     projectType: request.projectType,
     projectSpec: inferProjectSpec(request.request),
     request: request.request,
+    jobDocument: "",
     workspaceDir: request.workspaceDir,
     timestamp,
     summary,
-  } as const;
+  };
 
-  await writeFile(projectFilePath, await artifactService.renderProjectDocument(artifactContext), "utf8");
-  await writeFile(filePaths.jobFilePath, await artifactService.renderJobDocument(artifactContext), "utf8");
+  await writeFile(projectFilePath, await makeProjectService.makeProject(artifactContext), "utf8");
+  const renderedJobDocument = await makeJobService.makeJob(artifactContext);
+  await writeFile(filePaths.jobFilePath, renderedJobDocument, "utf8");
+  const jobDocument = await makeJobService.readJob(filePaths.jobFilePath);
 
-  const draftSeeds = await Promise.resolve(artifactService.renderDraftDocuments(artifactContext));
+  const draftSeeds = await Promise.resolve(
+    makeDraftService.makeDraft({
+      ...artifactContext,
+      jobDocument,
+    }),
+  );
+  const usedDraftNames = new Set<string>();
   const drafts = await Promise.all(
-    draftSeeds.map(async (draft, index) => {
-      const safeDraftSummary = toSnakeCaseSummary(draft.summary).slice(0, 48).replace(/_+$/g, "") || `draft_${index + 1}`;
-      const filePath = join(filePaths.draftsDir, `${String(index + 1).padStart(2, "0")}_${safeDraftSummary}.yaml`);
+    draftSeeds.map(async (draft) => {
+      const safeDraftSummary = buildUniqueTaskName(draft.summary, usedDraftNames, 10);
+      const filePath = join(filePaths.draftsDir, `${safeDraftSummary}.yaml`);
       await writeFile(filePath, draft.content, "utf8");
       return {
         ...draft,
@@ -537,7 +567,9 @@ async function ensureAttemptArtifacts(
   );
   await appendJobCheckResult(
     filePaths.jobFilePath,
-    `[analyze] generated drafts: ${drafts.map((draft) => `${draft.draftId}:${draft.kind}`).join(", ")}`,
+    `[analyze] generated drafts: ${drafts
+      .map((draft) => `${draft.draftId}:${draft.kind}:p${draft.priority}:${draft.dependsOn.join("+") || "none"}`)
+      .join(", ")}`,
   );
 
   return {

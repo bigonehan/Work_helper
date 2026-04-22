@@ -6,6 +6,7 @@ import {
   PROJECT_CAPTURE_DIR,
   PROJECT_METADATA_DIR,
   buildJobFilePaths,
+  buildUniqueTaskName,
   buildLegacyRemovalChecklist,
   buildProjectMetadataPath,
   createProjectMetadataDocument,
@@ -19,6 +20,7 @@ import {
   parseProjectMetadataDocument,
   readConfigValue,
   setConfigValue,
+  toLimitedSnakeCase,
   toSnakeCaseSummary,
 } from "../src/server/project";
 
@@ -31,6 +33,14 @@ describe("server project helpers", () => {
   test("builds snake case summaries", () => {
     expect(toSnakeCaseSummary("게시물 삭제 기능 추가")).toBe("게시물_삭제_기능_추가");
     expect(toSnakeCaseSummary("legacy remove ALL")).toBe("legacy_remove_all");
+    expect(toLimitedSnakeCase("게시물 삭제 기능 추가", 10, "job")).toBe("게시물_삭제_기능");
+    expect(toLimitedSnakeCase("Create React Todo App", 10, "job")).toBe("create_rea");
+  });
+
+  test("builds unique short task names", () => {
+    const usedNames = new Set<string>();
+    expect(buildUniqueTaskName("gift mapping", usedNames, 10)).toBe("gift_mappi");
+    expect(buildUniqueTaskName("gift mapping", usedNames, 10)).toBe("gift_ma_01");
   });
 
   test("detects legacy removal requests and builds checklist", () => {
@@ -48,7 +58,7 @@ describe("server project helpers", () => {
     expect(buildJobFilePaths(rootDir, "260416_1345", "게시물_삭제")).toEqual({
       jobDir: join(rootDir, ".project", "job", "260416_1345"),
       jobFilePath: join(rootDir, ".project", "job", "260416_1345", "job_게시물_삭제.md"),
-      draftsDir: join(rootDir, ".project", "job", "260416_1345", "drafts"),
+      draftsDir: join(rootDir, ".project", "job", "260416_1345", "게시물_삭제"),
       rgReportPath: join(rootDir, "evidence", "rg-report.txt"),
       captureDir: join(rootDir, PROJECT_CAPTURE_DIR),
     });
@@ -60,7 +70,8 @@ describe("server project helpers", () => {
     const config = await getConfig();
 
     expect(projectTemplate).toContain("# info");
-    expect(draftTemplate).toContain("name:");
+    expect(draftTemplate).toContain("id:");
+    expect(draftTemplate).toContain("dependsOn:");
     expect(getConfigValue(config, "frontendFramework")).toBe("next.js");
     expect(getConfigValue(config, "uiLibrary")).toBe("shadcn");
     expect(getConfigValue(config, "uiMobileCheck")).toBe(

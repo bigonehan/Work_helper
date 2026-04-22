@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { waitForProjectJob, submitProjectJobToTmux, destroyProjectTmuxSession } from "./projectManager";
-import { ProjectTag, createProjectLayerForType } from "./server/artifacts";
+import { BootstrapProjectTag, MakeProjectTag, createProjectLayerForType } from "./server/artifacts";
 import { buildProjectMetadataPath, parseProjectMetadataDocument } from "./server/project";
 import type { ManagerVerificationResult, ProjectJobSnapshot, ProjectSpec, ProjectType, Provider } from "./types";
 
@@ -16,8 +16,8 @@ export const readProjectBootstrapMetadata = async (workspaceDir: string): Promis
   const projectFilePath = buildProjectMetadataPath(workspaceDir);
   const document = await Effect.runPromise(
     Effect.gen(function* () {
-      const project = yield* ProjectTag;
-      return yield* Effect.promise(() => Promise.resolve(project.readProjectDocument(projectFilePath)));
+      const makeProject = yield* MakeProjectTag;
+      return yield* Effect.promise(() => Promise.resolve(makeProject.readProject(projectFilePath)));
     }).pipe(Effect.provide(createProjectLayerForType("code"))),
   );
   const metadata = parseProjectMetadataDocument(document);
@@ -36,8 +36,8 @@ export const buildBootstrapPrompt = async (input: {
 }): Promise<string> => {
   return Effect.runPromise(
     Effect.gen(function* () {
-      const project = yield* ProjectTag;
-      return yield* Effect.promise(() => Promise.resolve(project.buildBootstrapPrompt(input)));
+      const bootstrapProjectService = yield* BootstrapProjectTag;
+      return yield* Effect.promise(() => Promise.resolve(bootstrapProjectService.bootstrapProject(input)));
     }).pipe(Effect.provide(createProjectLayerForType(input.projectType))),
   );
 };
