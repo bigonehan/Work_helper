@@ -278,3 +278,194 @@ export interface ManagerResult {
   readonly finalAnswer: string | null;
   readonly finalSnapshot: ProjectJobSnapshot | null;
 }
+
+export interface CliJobRunner {
+  readonly submitJob: (options: ProjectTmuxJobOptions) => Promise<ProjectJobHandle>;
+  readonly waitForJob: (projectId: string, jobId: string) => Promise<ProjectJobSnapshot>;
+  readonly getJobSnapshot: (projectId: string, jobId: string) => Promise<ProjectJobSnapshot | null>;
+  readonly destroySession: (projectId: string) => Promise<void>;
+}
+
+export interface CliStepCommonInput {
+  readonly projectId: string;
+  readonly projectType: ProjectType;
+  readonly request: string;
+  readonly workspaceDir: string;
+  readonly provider: Provider;
+  readonly projectLayer?: Layer.Layer<
+    | ProjectArtifactService
+    | MakeProjectService
+    | MakeJobService
+    | MakeDraftService
+    | BootstrapProjectService
+    | StageRuntimeService
+  >;
+  readonly debugLogging?: boolean;
+  readonly totalTimeoutMs?: number;
+  readonly firstOutputTimeoutMs?: number;
+  readonly responseTimeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly stableAnswerWindowMs?: number;
+  readonly preserveWindowOnFailure?: boolean;
+}
+
+export interface CliRequestStepResult {
+  readonly stage: "request";
+  readonly request: string;
+  readonly transition: "request->init" | "request->import-project" | "request->plan" | "request->check";
+  readonly hasProjectMetadata: boolean;
+  readonly workspaceEmpty: boolean;
+  readonly hasSourceFiles: boolean;
+}
+
+export interface CliInitStepInput extends CliStepCommonInput {
+  readonly bootstrap?: boolean;
+}
+
+export interface CliBootstrapStepInput extends CliStepCommonInput {}
+
+export interface CliBootstrapStepResult {
+  readonly stage: "bootstrap";
+  readonly ok: boolean;
+  readonly metadata: {
+    readonly type: ProjectType;
+    readonly spec: ProjectSpec;
+    readonly path: string;
+  };
+  readonly snapshot: ProjectJobSnapshot;
+  readonly verification: ManagerVerificationResult;
+}
+
+export interface CliInitStepResult {
+  readonly stage: "init";
+  readonly ok: boolean;
+  readonly projectFilePath: string;
+  readonly projectDocument: string;
+  readonly projectSpec: ProjectSpec;
+  readonly bootstrap: CliBootstrapStepResult | null;
+}
+
+export interface CliPlanStepInput extends CliStepCommonInput {
+  readonly attempt?: number;
+}
+
+export interface CliPlanStepResult {
+  readonly stage: "plan";
+  readonly ok: boolean;
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly projectSpec: ProjectSpec;
+  readonly projectFilePath: string;
+  readonly jobFilePath: string;
+  readonly jobDocument: string;
+}
+
+export interface CliAnalyzeStepInput extends CliStepCommonInput {
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly projectSpec?: ProjectSpec;
+  readonly jobFilePath: string;
+  readonly jobDocument?: string;
+}
+
+export interface CliAnalyzeStepResult {
+  readonly stage: "analyze";
+  readonly ok: boolean;
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly projectSpec: ProjectSpec;
+  readonly jobFilePath: string;
+  readonly draftsDir: string;
+  readonly drafts: readonly ManagerDraftArtifact[];
+}
+
+export interface CliBuildStepInput extends CliStepCommonInput {
+  readonly attempt?: number;
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly jobFilePath: string;
+  readonly drafts: readonly ManagerDraftArtifact[];
+  readonly runner?: CliJobRunner;
+}
+
+export interface CliBuildStepResult {
+  readonly stage: "build";
+  readonly ok: boolean;
+  readonly attempt: number;
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly jobFilePath: string;
+  readonly executions: readonly ManagerDraftExecution[];
+  readonly failedExecution: ManagerDraftExecution | null;
+  readonly decision: "continue" | "halt";
+  readonly reason: string;
+}
+
+export interface CliCheckStepInput extends CliStepCommonInput {
+  readonly attempt?: number;
+  readonly timestamp: string;
+  readonly summary: string;
+  readonly jobFilePath: string;
+  readonly runner?: CliJobRunner;
+  readonly verifyCompletion?:
+    | ((
+        context: Pick<CliStepCommonInput, "projectId" | "request" | "workspaceDir" | "provider"> & {
+          readonly attempt: number;
+          readonly answer: string | null;
+          readonly snapshot: ProjectJobSnapshot;
+        },
+      ) => Promise<ManagerVerificationResult> | ManagerVerificationResult)
+    | undefined;
+}
+
+export interface CliCheckStepResult {
+  readonly stage: "check";
+  readonly ok: boolean;
+  readonly attempt: number;
+  readonly jobId: string;
+  readonly prompt: string;
+  readonly snapshot: ProjectJobSnapshot;
+  readonly providerClaimedCompletion: boolean;
+  readonly verification: ManagerVerificationResult | null;
+  readonly jobAssessment: ManagerJobAssessment | null;
+  readonly decision: ManagerDecision;
+  readonly reason: string;
+}
+
+export interface CliImproveStepInput extends CliStepCommonInput {
+  readonly jobFilePath: string;
+  readonly check: CliCheckStepResult;
+}
+
+export interface CliImproveStepResult {
+  readonly stage: "improve";
+  readonly decision: "continue" | "halt";
+  readonly reason: string;
+  readonly nextRequest: string | null;
+  readonly report: string;
+}
+
+export interface CliRequestHandlerInput extends CliStepCommonInput {
+  readonly bootstrap?: boolean;
+  readonly runner?: CliJobRunner;
+  readonly verifyCompletion?: CliCheckStepInput["verifyCompletion"];
+  readonly maxImproveIterations?: number;
+}
+
+export interface CliRequestCycleResult {
+  readonly attempt: number;
+  readonly plan: CliPlanStepResult;
+  readonly analyze: CliAnalyzeStepResult;
+  readonly build: CliBuildStepResult;
+  readonly check: CliCheckStepResult | null;
+  readonly improve: CliImproveStepResult | null;
+}
+
+export interface CliRequestHandlerResult {
+  readonly ok: boolean;
+  readonly request: CliRequestStepResult;
+  readonly init: CliInitStepResult | null;
+  readonly cycles: readonly CliRequestCycleResult[];
+  readonly finalDecision: "complete" | "halt";
+  readonly finalReason: string;
+}
