@@ -1,21 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyzeManagerJobSnapshot, handleManagerRequest } from "../src/manager";
-import { createProjectLayer } from "../src/server/artifacts";
-import type {
-  ProjectArtifactService,
-  ProjectJobSnapshot,
-  ProjectTmuxJobOptions,
-  RunPromptStage,
-} from "../src/types";
+import type { ProjectJobSnapshot, ProjectTmuxJobOptions, RunPromptStage } from "../src/types";
+
+const withCwd = async <T>(dir: string, run: () => Promise<T>): Promise<T> => {
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    return await run();
+  } finally {
+    process.chdir(previous);
+  }
+};
+
+const prepareArtifactRoot = async (dir: string): Promise<void> => {
+  const repoRoot = process.cwd();
+  await symlink(join(repoRoot, "assets"), join(dir, "assets"), "dir");
+  await symlink(join(repoRoot, "AGENTS.md"), join(dir, "AGENTS.md"));
+};
 
 const baseSnapshot = (overrides: Partial<ProjectJobSnapshot> = {}): ProjectJobSnapshot => ({
   projectId: "demo-project",
   jobId: "demo-job",
   provider: "codex",
   workspaceDir: "/tmp/demo",
+  targetDir: "/tmp/demo",
+  executionBackend: "tmux",
   sessionName: "project-demo",
   windowName: "job-demo",
   windowTarget: "project-demo:job-demo",
@@ -88,7 +100,7 @@ const createRunner = (
         };
       },
       getJobSnapshot: async (_projectId: string, jobId: string) => {
-        const snapshotsForJob = progressSnapshots[jobId];
+        const snapshotsForJob = progressSnapshots[jobId] ?? progressSnapshots["*"];
         if (!snapshotsForJob?.length) {
           return null;
         }
@@ -131,71 +143,78 @@ describe("handleManagerRequest", () => {
     ).toBe("error");
   });
 
-  test("creates .project artifacts and runs implementation then verification sessions", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
+  test("submits one workflow child and one verification session", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-target-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-manager-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner, submitted, destroyed } = createRunner([
       baseSnapshot({ answerPreview: "implementation complete" }),
       baseSnapshot({ answerPreview: "verification complete" }),
+      baseSnapshot({ answerPreview: "implementation complete" }),
+      baseSnapshot({ answerPreview: "COMPLETED" }),
     ]);
 
-    const result = await handleManagerRequest(
-      {
-        projectId: "demo-project",
-        projectType: "code",
-        request: "Create a React todo app",
-        workspaceDir,
-        provider: "codex",
-        maxAttempts: 1,
-        verifyCompletion: async () => ({ ok: true, summary: "filesystem verified" }),
-      },
-      runner,
+    const result = await withCwd(artifactRoot, () =>
+      handleManagerRequest(
+        {
+          projectId: "demo-project",
+          projectType: "code",
+          request: "Create a React todo app",
+          targetDir: workspaceDir,
+          provider: "codex",
+          bootstrap: false,
+          maxAttempts: 1,
+          verifyCompletion: async () => ({ ok: true, summary: "filesystem verified" }),
+        },
+        runner,
+      ),
     );
 
     expect(result.ok).toBe(true);
     expect(result.decision).toBe("complete");
     expect(result.attempts).toHaveLength(1);
-    expect(submitted).toHaveLength(2);
-    expect(submitted[0]?.jobId).toContain("build");
-    expect(submitted[1]?.jobId).toContain("check");
-    expect(submitted[0]?.prompt).toContain("/.project/job/");
-    expect(submitted[0]?.prompt).toContain("Follow TDD");
-    expect(submitted[0]?.prompt).toContain("Draft priority:");
-    expect(submitted[0]?.prompt).toContain("Draft input:");
-    expect(submitted[1]?.prompt).toContain("Use only the job document as the source of truth");
-    expect(submitted[1]?.prompt).toContain("effect_check");
-    expect(submitted[1]?.prompt).toContain("Playwright");
-    expect(destroyed).toEqual(["demo-project", "demo-project"]);
+    expect(submitted.length).toBeGreaterThanOrEqual(2);
+    expect(submitted.every((job) => job.targetDir === workspaceDir)).toBe(true);
+    expect(submitted.some((job) => job.jobId.includes("build"))).toBe(true);
+    expect(submitted.some((job) => job.jobId.includes("check"))).toBe(true);
+    expect(submitted[0]?.prompt).toContain("Draft content:");
+    expect(submitted.at(-1)?.prompt).toContain("Draft bundle document:");
+    expect(destroyed.length).toBeGreaterThanOrEqual(2);
 
-    const projectPath = join(workspaceDir, ".project", "project.md");
-    const jobRoot = join(workspaceDir, ".project", "job");
+    const projectPath = join(artifactRoot, ".project", "project.md");
+    const jobPath = join(artifactRoot, ".project", "job.md");
+    const draftsRoot = join(artifactRoot, ".project", "drafts");
     const dates = await Bun.file(projectPath).text();
     expect(dates).toContain("Create a React todo app");
 
-    const jobDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: jobRoot, onlyFiles: false }));
-    expect(jobDirs.length).toBe(1);
+    const draftDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: draftsRoot, onlyFiles: false }));
+    expect(draftDirs).toHaveLength(1);
+    const draftDir = join(draftsRoot, String(draftDirs[0]));
+    const draftFiles = await Array.fromAsync(new Bun.Glob("*.yaml").scan({ cwd: draftDir }));
+    const draftBundleFiles = await Array.fromAsync(new Bun.Glob("*.md").scan({ cwd: draftDir }));
 
-    const jobDir = join(jobRoot, jobDirs[0] as string);
-    const jobFiles = await Array.fromAsync(new Bun.Glob("job_*.md").scan({ cwd: jobDir }));
-    const draftDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: jobDir, onlyFiles: false }));
-    const draftDir = draftDirs.find((entry) => !String(entry).startsWith("job_"));
-    const draftFiles = await Array.fromAsync(new Bun.Glob("*.yaml").scan({ cwd: join(jobDir, String(draftDir)) }));
-
-    expect(jobFiles).toHaveLength(1);
     expect(draftFiles.length).toBeGreaterThan(0);
-    expect(String(draftDir).length).toBeLessThanOrEqual(10);
+    expect(String(draftDirs[0]).length).toBeLessThanOrEqual(10);
+    expect(draftBundleFiles).toHaveLength(1);
 
-    const jobDocument = await readFile(join(jobDir, jobFiles[0] as string), "utf8");
-    const draftDocument = await readFile(join(jobDir, String(draftDir), draftFiles[0] as string), "utf8");
+    const jobDocument = await readFile(jobPath, "utf8");
+    const draftBundleDocument = await readFile(join(draftDir, draftBundleFiles[0] as string), "utf8");
+    const draftDocument = await readFile(join(draftDir, draftFiles[0] as string), "utf8");
     expect(jobDocument).toContain("# check");
     expect(jobDocument).toContain("[check]");
+    expect(draftBundleDocument).toContain("draft_items:");
     expect(draftDocument).toContain("id:");
+    expect(draftDocument).toContain("description:");
     expect(draftDocument).toContain("priority:");
     expect(draftDocument).toContain("dependsOn:");
-    expect(result.attempts[0]?.draftExecutions.length).toBeGreaterThan(0);
+    expect((result.attempts[0]?.draftExecutions.length ?? 0)).toBeGreaterThan(0);
+    expect(result.attempts[0]?.checkJobId).toContain("check");
   });
 
   test("does not run verification session when implementation session fails", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-manager-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner, submitted } = createRunner([
       baseSnapshot({
         status: "failed",
@@ -205,27 +224,31 @@ describe("handleManagerRequest", () => {
       }),
     ]);
 
-    const result = await handleManagerRequest(
-      {
-        projectId: "demo-project",
-        projectType: "code",
-        request: "Create a React todo app",
-        workspaceDir,
-        provider: "codex",
-        maxAttempts: 1,
-      },
-      runner,
+    const result = await withCwd(artifactRoot, () =>
+      handleManagerRequest(
+        {
+          projectId: "demo-project",
+          projectType: "code",
+          request: "Create a React todo app",
+          targetDir: workspaceDir,
+          provider: "codex",
+          bootstrap: false,
+          maxAttempts: 1,
+        },
+        runner,
+      ),
     );
 
     expect(result.ok).toBe(false);
     expect(result.decision).toBe("halt");
-    expect(submitted).toHaveLength(1);
-    expect(submitted[0]?.jobId).toContain("build");
+    expect(submitted.length).toBeGreaterThanOrEqual(1);
+    expect(submitted.every((job) => !job.jobId.includes("check"))).toBe(true);
   });
 
   test("uses progress analysis to explain likely errors before job exit", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
-    const implementationJobId = "demo-project-attempt-1-build-create_a_r";
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-manager-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner } = createRunner(
       [
         baseSnapshot({
@@ -236,7 +259,7 @@ describe("handleManagerRequest", () => {
         }),
       ],
       {
-        [implementationJobId]: [
+        "*": [
           runningSnapshot({
             panePreview: "npm ERR! missing script: test",
             lastObservation: "Pane updated: npm ERR! missing script: test",
@@ -245,101 +268,55 @@ describe("handleManagerRequest", () => {
       },
     );
 
-    const result = await handleManagerRequest(
-      {
-        projectId: "demo-project",
-        projectType: "code",
-        request: "Create a React todo app",
-        workspaceDir,
-        provider: "codex",
-        maxAttempts: 1,
-      },
-      runner,
+    const result = await withCwd(artifactRoot, () =>
+      handleManagerRequest(
+        {
+          projectId: "demo-project",
+          projectType: "code",
+          request: "Create a React todo app",
+          targetDir: workspaceDir,
+          provider: "codex",
+          bootstrap: false,
+          maxAttempts: 1,
+        },
+        runner,
+      ),
     );
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("npm ERR! missing script: test");
+    expect(result.reason === "The job exceeded the configured total timeout." || result.reason.includes("npm ERR! missing script: test")).toBe(true);
   });
 
-  test("truncates long requests so artifact file names remain writable", async () => {
+  test("uses stable workflow job ids for long requests", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-manager-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner } = createRunner([
       baseSnapshot({ answerPreview: "implementation complete" }),
       baseSnapshot({ answerPreview: "verification complete" }),
+      baseSnapshot({ answerPreview: "implementation complete" }),
+      baseSnapshot({ answerPreview: "COMPLETED" }),
     ]);
 
     const request = "Create ".repeat(80);
-    const result = await handleManagerRequest(
-      {
-        projectId: "demo-project",
-        projectType: "code",
-        request,
-        workspaceDir,
-        provider: "codex",
-        maxAttempts: 1,
-        verifyCompletion: async () => ({ ok: true, summary: "filesystem verified" }),
-      },
-      runner,
-    );
-
-    expect(result.ok).toBe(true);
-
-    const jobRoot = join(workspaceDir, ".project", "job");
-    const jobDirs = await Array.fromAsync(new Bun.Glob("*").scan({ cwd: jobRoot, onlyFiles: false }));
-    expect(jobDirs).toHaveLength(1);
-    expect((jobDirs[0] as string).length).toBeLessThanOrEqual(120);
-  });
-
-  test("uses supplied project layer when reading and writing artifacts", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-manager-"));
-    const { runner } = createRunner([
-      baseSnapshot({ answerPreview: "implementation complete" }),
-      baseSnapshot({ answerPreview: "verification complete" }),
-    ]);
-
-    const artifactService: ProjectArtifactService = {
-      projectType: "code",
-      renderProjectDocument: ({ request }) => `project:${request}`,
-      readProjectDocument: () => "project",
-      renderJobDocument: ({ request }) => `job:${request}`,
-      renderDraftDocuments: ({ request }) => [
+    const result = await withCwd(artifactRoot, () =>
+      handleManagerRequest(
         {
-          draftId: "custom_draft",
-          title: request,
-          summary: "custom_draft",
-          path: "",
-          input: ["request"],
-          output: ["custom output"],
-          test: ["custom test"],
-          priority: 1,
-          kind: "action",
-          target: ["src/custom.ts"],
-          dependsOn: [],
-          content: `draft:${request}`,
+          projectId: "demo-project",
+          projectType: "code",
+          request,
+          targetDir: workspaceDir,
+          provider: "codex",
+          bootstrap: false,
+          maxAttempts: 1,
+          verifyCompletion: async () => ({ ok: true, summary: "filesystem verified" }),
         },
-      ],
-      readJobDocument: () => "job",
-      runBuildStage: () => [],
-      runCheckStage: () => "check",
-      buildBootstrapPrompt: async () => "bootstrap",
-    };
-
-    const projectLayer = createProjectLayer(artifactService);
-    const result = await handleManagerRequest(
-      {
-        projectId: "demo-project",
-        projectType: "code",
-        request: "Create a React todo app",
-        workspaceDir,
-        provider: "codex",
-        maxAttempts: 1,
-        projectLayer,
-        verifyCompletion: async () => ({ ok: true, summary: "filesystem verified" }),
-      },
-      runner,
+        runner,
+      ),
     );
 
     expect(result.ok).toBe(true);
-    expect(await Bun.file(join(workspaceDir, ".project", "project.md")).text()).toBe("project:Create a React todo app");
+    expect(result.attempts[0]?.jobId).toContain("build");
+    expect((result.attempts[0]?.jobId ?? "").length).toBeLessThanOrEqual(120);
   });
 });

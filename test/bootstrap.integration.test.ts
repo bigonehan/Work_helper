@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { bootstrapProject, createBootstrapVerifier } from "../src/bootstrap";
@@ -7,6 +7,22 @@ import { buildProjectMetadataPath, createProjectMetadataDocument } from "../src/
 
 const tempDir = join(homedir(), "temp");
 const specs = ["rust", "typescript", "python"] as const;
+
+const withCwd = async <T>(dir: string, run: () => Promise<T>): Promise<T> => {
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    return await run();
+  } finally {
+    process.chdir(previous);
+  }
+};
+
+const prepareArtifactRoot = async (dir: string): Promise<void> => {
+  const repoRoot = process.cwd();
+  await symlink(join(repoRoot, "assets"), join(dir, "assets"), "dir");
+  await symlink(join(repoRoot, "AGENTS.md"), join(dir, "AGENTS.md"));
+};
 
 describe("bootstrap integration", () => {
   test(
@@ -18,6 +34,7 @@ describe("bootstrap integration", () => {
       for (const spec of specs) {
         const workspaceDir = join(tempDir, spec);
         await mkdir(join(workspaceDir, ".project"), { recursive: true });
+        await prepareArtifactRoot(workspaceDir);
 
         await writeFile(
           buildProjectMetadataPath(workspaceDir),
@@ -32,14 +49,16 @@ describe("bootstrap integration", () => {
           "utf8",
         );
 
-        const snapshot = await bootstrapProject({
-          projectId: `bootstrap-${spec}-${Date.now().toString(36)}`,
-          workspaceDir,
-          provider: "codex",
-          totalTimeoutMs: 240_000,
-          firstOutputTimeoutMs: 20_000,
-          responseTimeoutMs: 180_000,
-        });
+        const snapshot = await withCwd(workspaceDir, () =>
+          bootstrapProject({
+            projectId: `bootstrap-${spec}-${Date.now().toString(36)}`,
+            workspaceDir,
+            provider: "codex",
+            totalTimeoutMs: 240_000,
+            firstOutputTimeoutMs: 20_000,
+            responseTimeoutMs: 180_000,
+          }),
+        );
 
         expect(snapshot.status).toBe("completed");
         expect(snapshot.answerPreview ?? "").toContain("COMPLETED");

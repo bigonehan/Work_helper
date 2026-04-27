@@ -1,6 +1,8 @@
 import type { Layer } from "effect";
 
 export type Provider = "codex" | "gemini";
+export type CodexSandboxMode = "read-only" | "workspace-write";
+export type CodexApprovalPolicy = "never";
 export type ProjectType = "code" | "mono";
 export type ProjectSpec = "typescript" | "python" | "rust";
 
@@ -63,13 +65,15 @@ export interface RunPromptResult {
 }
 
 export type ProjectJobStatus = "queued" | "waiting" | "running" | "completed" | "failed";
+export type ExecutionBackend = "tmux" | "direct";
 
 export interface ProjectTmuxJobOptions {
   readonly projectId: string;
   readonly jobId: string;
   readonly provider: Provider;
   readonly prompt: string;
-  readonly workspaceDir: string;
+  readonly workspaceDir?: string;
+  readonly targetDir?: string;
   readonly promptFilePath?: string;
   readonly debugLogging?: boolean;
   readonly totalTimeoutMs?: number;
@@ -95,6 +99,8 @@ export interface ProjectJobSnapshot {
   readonly jobId: string;
   readonly provider: Provider;
   readonly workspaceDir: string;
+  readonly targetDir: string;
+  readonly executionBackend: ExecutionBackend;
   readonly sessionName: string;
   readonly windowName: string;
   readonly windowTarget: string;
@@ -139,6 +145,7 @@ export interface ProjectArtifactContext {
 export interface ManagerDraftArtifact {
   readonly draftId: string;
   readonly title: string;
+  readonly description: string;
   readonly summary: string;
   readonly path: string;
   readonly input: readonly string[];
@@ -236,7 +243,8 @@ export interface ManagerRequest {
   readonly projectId: string;
   readonly projectType: ProjectType;
   readonly request: string;
-  readonly workspaceDir: string;
+  readonly workspaceDir?: string;
+  readonly targetDir?: string;
   readonly provider: Provider;
   readonly projectLayer?: Layer.Layer<
     | ProjectArtifactService
@@ -247,6 +255,7 @@ export interface ManagerRequest {
     | StageRuntimeService
   >;
   readonly debugLogging?: boolean;
+  readonly bootstrap?: boolean;
   readonly maxAttempts?: number;
   readonly totalTimeoutMs?: number;
   readonly firstOutputTimeoutMs?: number;
@@ -271,6 +280,7 @@ export interface ManagerResult {
   readonly projectId: string;
   readonly request: string;
   readonly workspaceDir: string;
+  readonly targetDir: string;
   readonly provider: Provider;
   readonly attempts: readonly ManagerAttemptRecord[];
   readonly decision: ManagerDecision;
@@ -290,7 +300,8 @@ export interface CliStepCommonInput {
   readonly projectId: string;
   readonly projectType: ProjectType;
   readonly request: string;
-  readonly workspaceDir: string;
+  readonly workspaceDir?: string;
+  readonly targetDir?: string;
   readonly provider: Provider;
   readonly projectLayer?: Layer.Layer<
     | ProjectArtifactService
@@ -375,7 +386,9 @@ export interface CliAnalyzeStepResult {
   readonly summary: string;
   readonly projectSpec: ProjectSpec;
   readonly jobFilePath: string;
-  readonly draftsDir: string;
+  readonly draftDir: string;
+  readonly draftDocumentPath: string;
+  readonly draftDocument: string;
   readonly drafts: readonly ManagerDraftArtifact[];
 }
 
@@ -406,6 +419,7 @@ export interface CliCheckStepInput extends CliStepCommonInput {
   readonly timestamp: string;
   readonly summary: string;
   readonly jobFilePath: string;
+  readonly draftDocumentPath: string;
   readonly runner?: CliJobRunner;
   readonly verifyCompletion?:
     | ((

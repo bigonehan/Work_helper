@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,11 +13,29 @@ import {
 } from "../src/cli";
 import type { CliJobRunner, ProjectJobSnapshot, ProjectTmuxJobOptions } from "../src/types";
 
+const withCwd = async <T>(dir: string, run: () => Promise<T>): Promise<T> => {
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    return await run();
+  } finally {
+    process.chdir(previous);
+  }
+};
+
+const prepareArtifactRoot = async (dir: string): Promise<void> => {
+  const repoRoot = process.cwd();
+  await symlink(join(repoRoot, "assets"), join(dir, "assets"), "dir");
+  await symlink(join(repoRoot, "AGENTS.md"), join(dir, "AGENTS.md"));
+};
+
 const baseSnapshot = (overrides: Partial<ProjectJobSnapshot> = {}): ProjectJobSnapshot => ({
   projectId: "demo-project",
   jobId: "demo-job",
   provider: "codex",
   workspaceDir: "/tmp/demo",
+  targetDir: "/tmp/demo",
+  executionBackend: "tmux",
   sessionName: "project-demo",
   windowName: "job-demo",
   windowTarget: "project-demo:job-demo",
@@ -85,90 +103,113 @@ const createRunner = (snapshots: ProjectJobSnapshot[]) => {
 describe("cli wrappers", () => {
   test("runInitStep creates project metadata without bootstrap when disabled", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-cli-init-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-cli-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
 
-    const result = await runInitStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "Create a React todo app",
-      workspaceDir,
-      provider: "codex",
-      bootstrap: false,
-    });
+    const result = await withCwd(artifactRoot, () =>
+      runInitStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "Create a React todo app",
+        workspaceDir,
+        provider: "codex",
+        bootstrap: false,
+      }),
+    );
 
     expect(result.ok).toBe(true);
     expect(result.bootstrap).toBeNull();
+    expect(result.projectFilePath).toBe(join(artifactRoot, ".project", "project.md"));
     expect(await Bun.file(result.projectFilePath).text()).toContain("Create a React todo app");
   });
 
   test("runPlanStep and runAnalyzeStep create job and draft artifacts", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-cli-plan-"));
-    await mkdir(join(workspaceDir, ".project"), { recursive: true });
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-cli-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
 
-    const plan = await runPlanStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "학생 선물 출력 기능 추가",
-      workspaceDir,
-      provider: "codex",
-    });
-    const analyze = await runAnalyzeStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "학생 선물 출력 기능 추가",
-      workspaceDir,
-      provider: "codex",
-      timestamp: plan.timestamp,
-      summary: plan.summary,
-      projectSpec: plan.projectSpec,
-      jobFilePath: plan.jobFilePath,
-      jobDocument: plan.jobDocument,
+    const { plan, analyze } = await withCwd(artifactRoot, async () => {
+      await mkdir(join(artifactRoot, ".project"), { recursive: true });
+
+      const plan = await runPlanStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "학생 선물 출력 기능 추가",
+        workspaceDir,
+        provider: "codex",
+      });
+      const analyze = await runAnalyzeStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "학생 선물 출력 기능 추가",
+        workspaceDir,
+        provider: "codex",
+        timestamp: plan.timestamp,
+        summary: plan.summary,
+        projectSpec: plan.projectSpec,
+        jobFilePath: plan.jobFilePath,
+        jobDocument: plan.jobDocument,
+      });
+
+      return { plan, analyze };
     });
 
     expect(plan.jobDocument).toContain("# check");
     expect(analyze.drafts.length).toBeGreaterThan(0);
+    expect(plan.jobFilePath).toBe(join(artifactRoot, ".project", "job.md"));
+    expect(analyze.draftDocumentPath).toContain(`${plan.summary}.md`);
+    expect(analyze.draftDir).toBe(join(artifactRoot, ".project", "drafts", plan.summary));
+    expect(await Bun.file(analyze.draftDocumentPath).text()).toContain("draft_items:");
     expect(await Bun.file(analyze.drafts[0]!.path).text()).toContain("priority:");
+    expect(await Bun.file(analyze.drafts[0]!.path).text()).toContain("description:");
     expect(await Bun.file(plan.jobFilePath).text()).toContain("[analyze] generated drafts");
   });
 
   test("runBuildStep executes drafts in dependency order and appends build reports", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-cli-build-"));
-    await mkdir(join(workspaceDir, ".project"), { recursive: true });
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-cli-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner, submitted, destroyed } = createRunner([
       baseSnapshot({ answerPreview: "draft 1 complete" }),
       baseSnapshot({ answerPreview: "draft 2 complete" }),
       baseSnapshot({ answerPreview: "draft 3 complete" }),
     ]);
 
-    const plan = await runPlanStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "학생 선물 출력 기능 추가",
-      workspaceDir,
-      provider: "codex",
-    });
-    const analyze = await runAnalyzeStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "학생 선물 출력 기능 추가",
-      workspaceDir,
-      provider: "codex",
-      timestamp: plan.timestamp,
-      summary: plan.summary,
-      projectSpec: plan.projectSpec,
-      jobFilePath: plan.jobFilePath,
-      jobDocument: plan.jobDocument,
-    });
-    const build = await runBuildStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "학생 선물 출력 기능 추가",
-      workspaceDir,
-      provider: "codex",
-      timestamp: analyze.timestamp,
-      summary: analyze.summary,
-      jobFilePath: analyze.jobFilePath,
-      drafts: analyze.drafts,
-      runner,
+    const { plan, build } = await withCwd(artifactRoot, async () => {
+      await mkdir(join(artifactRoot, ".project"), { recursive: true });
+      const plan = await runPlanStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "학생 선물 출력 기능 추가",
+        workspaceDir,
+        provider: "codex",
+      });
+      const analyze = await runAnalyzeStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "학생 선물 출력 기능 추가",
+        workspaceDir,
+        provider: "codex",
+        timestamp: plan.timestamp,
+        summary: plan.summary,
+        projectSpec: plan.projectSpec,
+        jobFilePath: plan.jobFilePath,
+        jobDocument: plan.jobDocument,
+      });
+      const build = await runBuildStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "학생 선물 출력 기능 추가",
+        workspaceDir,
+        provider: "codex",
+        timestamp: analyze.timestamp,
+        summary: analyze.summary,
+        jobFilePath: analyze.jobFilePath,
+        drafts: analyze.drafts,
+        runner,
+      });
+
+      return { plan, build };
     });
 
     expect(build.ok).toBe(true);
@@ -177,6 +218,7 @@ describe("cli wrappers", () => {
     expect(submitted[0]?.prompt).toContain("Draft priority: 1");
     expect(submitted[1]?.prompt).toContain("Draft priority: 2");
     expect(submitted[2]?.prompt).toContain("Draft priority: 3");
+    expect(submitted[0]?.prompt).toContain("Draft file:");
     expect(destroyed).toEqual(["demo-project", "demo-project"]);
 
     const jobDocument = await readFile(plan.jobFilePath, "utf8");
@@ -187,7 +229,8 @@ describe("cli wrappers", () => {
 
   test("runCheckStep and runImproveStep produce a follow-up request when check halts", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-cli-check-"));
-    await mkdir(join(workspaceDir, ".project"), { recursive: true });
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-cli-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner } = createRunner([
       baseSnapshot({
         answerPreview: "needs more work",
@@ -195,32 +238,50 @@ describe("cli wrappers", () => {
       }),
     ]);
 
-    const plan = await runPlanStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "게시물 삭제 기능 추가",
-      workspaceDir,
-      provider: "codex",
-    });
-    const check = await runCheckStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "게시물 삭제 기능 추가",
-      workspaceDir,
-      provider: "codex",
-      timestamp: plan.timestamp,
-      summary: plan.summary,
-      jobFilePath: plan.jobFilePath,
-      runner,
-    });
-    const improve = await runImproveStep({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "게시물 삭제 기능 추가",
-      workspaceDir,
-      provider: "codex",
-      jobFilePath: plan.jobFilePath,
-      check,
+    const { check, improve } = await withCwd(artifactRoot, async () => {
+      await mkdir(join(artifactRoot, ".project"), { recursive: true });
+      const plan = await runPlanStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "게시물 삭제 기능 추가",
+        workspaceDir,
+        provider: "codex",
+      });
+      const analyze = await runAnalyzeStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "게시물 삭제 기능 추가",
+        workspaceDir,
+        provider: "codex",
+        timestamp: plan.timestamp,
+        summary: plan.summary,
+        projectSpec: plan.projectSpec,
+        jobFilePath: plan.jobFilePath,
+        jobDocument: plan.jobDocument,
+      });
+      const check = await runCheckStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "게시물 삭제 기능 추가",
+        workspaceDir,
+        provider: "codex",
+        timestamp: plan.timestamp,
+        summary: plan.summary,
+        jobFilePath: plan.jobFilePath,
+        draftDocumentPath: analyze.draftDocumentPath,
+        runner,
+      });
+      const improve = await runImproveStep({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "게시물 삭제 기능 추가",
+        workspaceDir,
+        provider: "codex",
+        jobFilePath: plan.jobFilePath,
+        check,
+      });
+
+      return { check, improve };
     });
 
     expect(check.ok).toBe(false);
@@ -232,6 +293,8 @@ describe("cli wrappers", () => {
 
   test("handleRequest runs init and one improve retry before completing", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-cli-handler-"));
+    const artifactRoot = await mkdtemp(join(tmpdir(), "work-helper-cli-artifacts-"));
+    await prepareArtifactRoot(artifactRoot);
     const { runner } = createRunner([
       baseSnapshot({ answerPreview: "build complete" }),
       baseSnapshot({ answerPreview: "needs more work", panePreview: "needs more work" }),
@@ -239,21 +302,24 @@ describe("cli wrappers", () => {
       baseSnapshot({ answerPreview: "COMPLETED" }),
     ]);
 
-    const result = await handleRequest({
-      projectId: "demo-project",
-      projectType: "code",
-      request: "게시물 삭제 기능 추가",
-      workspaceDir,
-      provider: "codex",
-      bootstrap: false,
-      runner,
-      maxImproveIterations: 1,
-    });
+    const result = await withCwd(artifactRoot, () =>
+      handleRequest({
+        projectId: "demo-project",
+        projectType: "code",
+        request: "게시물 삭제 기능 추가",
+        targetDir: workspaceDir,
+        provider: "codex",
+        bootstrap: false,
+        runner,
+        maxImproveIterations: 1,
+      }),
+    );
 
     expect(result.ok).toBe(true);
     expect(result.request.transition).toBe("request->init");
-    expect(result.init?.projectFilePath).toContain(".project/project.md");
+    expect(result.init?.projectFilePath).toBe(join(artifactRoot, ".project", "project.md"));
     expect(result.cycles).toHaveLength(2);
+    expect(result.cycles[0]?.analyze.draftDocumentPath).toContain(join(artifactRoot, ".project", "drafts"));
     expect(result.cycles[0]?.improve?.decision).toBe("continue");
     expect(result.cycles[1]?.check?.decision).toBe("complete");
     expect(result.finalDecision).toBe("complete");

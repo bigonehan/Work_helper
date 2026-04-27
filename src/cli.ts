@@ -1,6 +1,12 @@
 import { Effect } from "effect";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+import {
+  detectWorkspaceState,
+  ensureArtifactRootWritable,
+  ensureTargetDirWritable,
+  resolveExecutionPaths,
+} from "./executionPaths";
 import { runRequestStage } from "./main";
 import { analyzeManagerJobSnapshot } from "./manager";
 import {
@@ -24,15 +30,18 @@ import {
   buildJobFilePaths,
   buildProjectMetadataPath,
   buildUniqueTaskName,
+  createDraftDocument,
   formatJobTimestamp,
   getAgentWorkflowRules,
   getConfig,
   getConfigValue,
   inferProjectSpec,
   parseProjectMetadataDocument,
+  readDraftDocument,
   toLimitedSnakeCase,
   toSnakeCaseSummary,
 } from "./server/project";
+import type { DraftDocumentChecks } from "./server/project";
 import type {
   CliAnalyzeStepInput,
   CliAnalyzeStepResult,
@@ -74,6 +83,10 @@ interface AttemptArtifacts {
   readonly timestamp: string;
   readonly summary: string;
   readonly jobFilePath: string;
+  readonly targetDir: string;
+  readonly jobDocument: string;
+  readonly draftDocument: string;
+  readonly draftChecks: DraftDocumentChecks;
   readonly drafts: readonly ManagerDraftArtifact[];
 }
 
@@ -93,13 +106,14 @@ function resolveProjectLayer(projectType: ProjectType, projectLayer?: CliPlanSte
 }
 
 function buildArtifactContext(input: CliPlanStepInput | CliAnalyzeStepInput, timestamp: string, summary: string): ProjectArtifactContext {
+  const paths = resolveExecutionPaths(input);
   return {
     projectId: input.projectId,
     projectType: input.projectType,
     projectSpec: "projectSpec" in input && input.projectSpec ? input.projectSpec : inferProjectSpec(input.request),
     request: input.request,
     jobDocument: "jobDocument" in input ? input.jobDocument ?? "" : "",
-    workspaceDir: input.workspaceDir,
+    workspaceDir: paths.targetDir,
     timestamp,
     summary,
   };
@@ -112,31 +126,6 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function detectWorkspaceState(workspaceDir: string): Promise<{
-  readonly hasProjectMetadata: boolean;
-  readonly workspaceEmpty: boolean;
-  readonly hasSourceFiles: boolean;
-}> {
-  const projectMetadataPath = buildProjectMetadataPath(workspaceDir);
-  const hasProjectMetadata = await pathExists(projectMetadataPath);
-  const entries = (await readdir(workspaceDir, { withFileTypes: true }).catch(() => []))
-    .filter((entry) => ![".git", "node_modules"].includes(entry.name));
-  const workspaceEmpty = entries.length === 0;
-  const hasSourceFiles = entries.some((entry) => {
-    if (entry.isDirectory()) {
-      return ["src", "test", "app", ".project"].includes(entry.name);
-    }
-
-    return /\.(ts|tsx|js|jsx|py|rs|md|json|yaml|yml)$/iu.test(entry.name);
-  });
-
-  return {
-    hasProjectMetadata,
-    workspaceEmpty,
-    hasSourceFiles,
-  };
 }
 
 function buildJobId(projectId: string, attempt: number, kind: "build" | "check", suffix: string): string {
@@ -178,41 +167,66 @@ function buildDraftExecutionBatches(drafts: readonly ManagerDraftArtifact[]): Ma
 
 function buildDraftExecutionPrompt(artifacts: AttemptArtifacts, draft: ManagerDraftArtifact, policies: CliPromptPolicies): string {
   return [
-    "You are executing a build job through tmux.",
-    "Use only the assigned draft document as the implementation source of truth.",
+    "You are executing a build job through the delegated provider session.",
+    "Use only the assigned draft content as the implementation source of truth.",
     "Follow TDD: write or update unit tests first, then implement the code.",
     "Run the relevant unit tests inside this session and do not finish until they pass.",
     "Do not perform the final browser-level or integration-level check in this session.",
     "Return exactly COMPLETED on a single line only after implementation and unit-test pass are finished.",
     "",
-    `Draft document: ${draft.path}`,
+    `Target directory: ${artifacts.targetDir}`,
+    `Workflow record: ${artifacts.jobFilePath}`,
+    `Draft bundle: ${artifacts.summary}`,
     `Draft id: ${draft.draftId}`,
     `Draft priority: ${draft.priority}`,
     `Draft kind: ${draft.kind}`,
+    `Draft file: ${draft.path}`,
+    `Draft description: ${draft.description}`,
     `Draft input: ${draft.input.join(", ") || "none"}`,
     `Draft output: ${draft.output.join(", ") || "none"}`,
     `Draft tests: ${draft.test.join(", ") || "none"}`,
     `Draft targets: ${draft.target.join(", ") || "none"}`,
     `Draft dependencies: ${draft.dependsOn.join(", ") || "none"}`,
+    "Draft content:",
+    draft.content,
     `Policy: ${policies.testFirstPolicy}`,
     `Workflow: ${policies.workflowGuide}`,
   ].join("\n");
 }
 
 function buildCheckPrompt(artifacts: AttemptArtifacts, policies: CliPromptPolicies): string {
+  const automatedChecks = artifacts.draftChecks.automated.map((item) => `- ${item}`).join("\n") || "- none";
+  const assertions = artifacts.draftChecks.assertions.map((item) => `- ${item}`).join("\n") || "- none";
   return [
-    "You are executing a final check job through tmux.",
-    "Use only the job document as the source of truth for the requested outcome.",
-    "Verify whether the request described in the job document is actually fulfilled in the workspace.",
+    "You are executing a final check job through the delegated provider session.",
+    "Use the inline draft bundle document as the source of truth for the requested outcome.",
+    "Verify whether the request described in the draft bundle document is actually fulfilled in the target directory.",
     "Use the effect_check skill guidance if it is available, and explicitly verify that the Effect TS schema, Context.Tag providers, and tagged stage-entry errors are wired correctly.",
     "When relevant, start the app or temporary server, use Playwright, simulate user actions, inspect logs or messages, and capture screenshots.",
     "Decide whether the request is complete or still needs more work based on real execution evidence.",
     "Return exactly COMPLETED on a single line only after the final check is finished.",
     "",
-    `Job document: ${artifacts.jobFilePath}`,
+    `Target directory: ${artifacts.targetDir}`,
+    `Workflow record: ${artifacts.jobFilePath}`,
+    "Automated checks:",
+    automatedChecks,
+    "Assertions:",
+    assertions,
+    "Draft bundle document:",
+    artifacts.draftDocument,
+    "Supporting job document:",
+    "Job document:",
+    artifacts.jobDocument,
     `Policy: ${policies.uiMobileCheck}`,
     `Workflow: ${policies.workflowGuide}`,
   ].join("\n");
+}
+
+function buildDraftChecks(drafts: readonly ManagerDraftArtifact[]): DraftDocumentChecks {
+  return {
+    automated: ["bun test", "bunx tsc --noEmit"],
+    assertions: drafts.map((draft) => `${draft.draftId}: ${draft.description}`),
+  };
 }
 
 async function appendJobCheckResult(jobFilePath: string, message: string): Promise<void> {
@@ -309,7 +323,7 @@ export const runRequestStep = async (
   request: string,
   workspaceDir: string,
 ): Promise<CliRequestStepResult> => {
-  const workspaceState = await detectWorkspaceState(workspaceDir);
+  const workspaceState = await detectWorkspaceState(workspaceDir, process.cwd());
   const result = runRequestStage({
     request,
     ...workspaceState,
@@ -324,21 +338,23 @@ export const runRequestStep = async (
 };
 
 export const runProjectBootstrapStep = async (input: CliBootstrapStepInput): Promise<CliBootstrapStepResult> => {
+  const paths = resolveExecutionPaths(input);
+  await ensureArtifactRootWritable(paths.artifactRoot, "bootstrap");
   const snapshot = await bootstrapProject({
     projectId: input.projectId,
-    workspaceDir: input.workspaceDir,
+    targetDir: paths.targetDir,
     provider: input.provider,
     debugLogging: input.debugLogging,
     totalTimeoutMs: input.totalTimeoutMs,
     firstOutputTimeoutMs: input.firstOutputTimeoutMs,
-    responseTimeoutMs: input.responseTimeoutMs,
+      responseTimeoutMs: input.responseTimeoutMs,
   });
-  const metadata = await readProjectBootstrapMetadata(input.workspaceDir);
-  const verification = await createBootstrapVerifier(metadata.spec)(input.workspaceDir);
+  const metadata = await readProjectBootstrapMetadata(paths.artifactRoot);
+  const verification = await createBootstrapVerifier(metadata.spec)(paths.targetDir);
 
   return {
     stage: "bootstrap",
-    ok: snapshot.status === "completed" && verification.ok,
+    ok: verification.ok,
     metadata,
     snapshot,
     verification,
@@ -347,20 +363,22 @@ export const runProjectBootstrapStep = async (input: CliBootstrapStepInput): Pro
 
 export const runInitStep = async (input: CliInitStepInput): Promise<CliInitStepResult> => {
   const layer = resolveProjectLayer(input.projectType, input.projectLayer);
-  const projectFilePath = buildProjectMetadataPath(input.workspaceDir);
+  const paths = resolveExecutionPaths(input);
+  const projectFilePath = buildProjectMetadataPath(paths.artifactRoot);
   const projectSpec = inferProjectSpec(input.request);
+  await ensureArtifactRootWritable(paths.artifactRoot, "init");
   const artifactContext = {
     projectId: input.projectId,
     projectType: input.projectType,
     projectSpec,
     request: input.request,
     jobDocument: "",
-    workspaceDir: input.workspaceDir,
+    workspaceDir: paths.targetDir,
     timestamp: formatJobTimestamp(new Date()),
     summary: toLimitedSnakeCase(input.request, 10, "job"),
   } satisfies ProjectArtifactContext;
 
-  await mkdir(join(input.workspaceDir, ".project"), { recursive: true });
+  await mkdir(join(paths.artifactRoot, ".project"), { recursive: true });
   const projectDocument = await Effect.runPromise(
     Effect.gen(function* () {
       const makeProject = yield* MakeProjectTag;
@@ -383,17 +401,18 @@ export const runInitStep = async (input: CliInitStepInput): Promise<CliInitStepR
 
 export const runPlanStep = async (input: CliPlanStepInput): Promise<CliPlanStepResult> => {
   const layer = resolveProjectLayer(input.projectType, input.projectLayer);
+  const paths = resolveExecutionPaths(input);
   const attempt = input.attempt ?? 1;
   const timestamp = formatJobTimestamp(new Date(Date.now() + attempt * 60_000));
   const summary = toLimitedSnakeCase(input.request, 10, "job");
   const projectSpec = inferProjectSpec(input.request);
-  const projectFilePath = buildProjectMetadataPath(input.workspaceDir);
-  const filePaths = buildJobFilePaths(input.workspaceDir, timestamp, summary);
+  const projectFilePath = buildProjectMetadataPath(paths.artifactRoot);
+  const filePaths = buildJobFilePaths(paths.artifactRoot, timestamp, summary);
 
-  await mkdir(join(input.workspaceDir, ".project"), { recursive: true });
-  await mkdir(filePaths.jobDir, { recursive: true });
+  await ensureArtifactRootWritable(paths.artifactRoot, "plan");
+  await mkdir(join(paths.artifactRoot, ".project"), { recursive: true });
+  await mkdir(filePaths.draftsRootDir, { recursive: true });
   await mkdir(filePaths.captureDir, { recursive: true });
-  await mkdir(join(input.workspaceDir, "evidence"), { recursive: true });
 
   const artifactContext = buildArtifactContext(input, timestamp, summary);
   const jobDocument = await Effect.runPromise(
@@ -428,11 +447,13 @@ export const runPlanStep = async (input: CliPlanStepInput): Promise<CliPlanStepR
 
 export const runAnalyzeStep = async (input: CliAnalyzeStepInput): Promise<CliAnalyzeStepResult> => {
   const layer = resolveProjectLayer(input.projectType, input.projectLayer);
+  const paths = resolveExecutionPaths(input);
   const projectSpec = input.projectSpec ?? inferProjectSpec(input.request);
-  const filePaths = buildJobFilePaths(input.workspaceDir, input.timestamp, input.summary);
+  const filePaths = buildJobFilePaths(paths.artifactRoot, input.timestamp, input.summary);
   const jobDocument = input.jobDocument ?? (await readFile(input.jobFilePath, "utf8"));
 
-  await mkdir(filePaths.draftsDir, { recursive: true });
+  await ensureArtifactRootWritable(paths.artifactRoot, "analyze");
+  await mkdir(filePaths.draftDir, { recursive: true });
   const draftSeeds = await Effect.runPromise(
     Effect.gen(function* () {
       const makeDraft = yield* MakeDraftTag;
@@ -452,14 +473,30 @@ export const runAnalyzeStep = async (input: CliAnalyzeStepInput): Promise<CliAna
   const drafts = await Promise.all(
     draftSeeds.map(async (draft) => {
       const safeDraftSummary = buildUniqueTaskName(draft.summary, usedDraftNames, 10);
-      const filePath = join(filePaths.draftsDir, `${safeDraftSummary}.yaml`);
-      await writeFile(filePath, draft.content, "utf8");
+      const filePath = join(filePaths.draftDir, `${safeDraftSummary}.yaml`);
+      const content = draft.content.replace(/^summary:\s.+$/m, `summary: ${safeDraftSummary}`);
+      await writeFile(filePath, content, "utf8");
       return {
         ...draft,
+        summary: safeDraftSummary,
         path: filePath,
+        content,
       } satisfies ManagerDraftArtifact;
     }),
   );
+
+  const draftChecks = buildDraftChecks(drafts);
+  const draftDocument = await createDraftDocument({
+    request: input.request,
+    summary: input.summary,
+    draftItems: drafts.map((draft) => ({
+      id: draft.draftId,
+      file: basename(draft.path),
+      description: draft.description,
+    })),
+    checks: draftChecks,
+  });
+  await writeFile(filePaths.draftDocumentPath, draftDocument, "utf8");
 
   await appendJobCheckResult(
     input.jobFilePath,
@@ -467,6 +504,7 @@ export const runAnalyzeStep = async (input: CliAnalyzeStepInput): Promise<CliAna
       .map((draft) => `${draft.draftId}:${draft.kind}:p${draft.priority}:${draft.dependsOn.join("+") || "none"}`)
       .join(", ")}`,
   );
+  await appendJobCheckResult(input.jobFilePath, `[analyze] draft bundle: ${filePaths.draftDocumentPath}`);
 
   return {
     stage: "analyze",
@@ -475,7 +513,9 @@ export const runAnalyzeStep = async (input: CliAnalyzeStepInput): Promise<CliAna
     summary: input.summary,
     projectSpec,
     jobFilePath: input.jobFilePath,
-    draftsDir: filePaths.draftsDir,
+    draftDir: filePaths.draftDir,
+    draftDocumentPath: filePaths.draftDocumentPath,
+    draftDocument,
     drafts,
   };
 };
@@ -483,11 +523,18 @@ export const runAnalyzeStep = async (input: CliAnalyzeStepInput): Promise<CliAna
 export const runBuildStep = async (input: CliBuildStepInput): Promise<CliBuildStepResult> => {
   const runner = input.runner ?? defaultJobRunner;
   const policies = await loadPromptPolicies();
+  const paths = resolveExecutionPaths(input);
   const attempt = input.attempt ?? 1;
+  await ensureTargetDirWritable(paths.targetDir, "build");
+  const jobDocument = await readFile(input.jobFilePath, "utf8");
   const artifacts: AttemptArtifacts = {
     timestamp: input.timestamp,
     summary: input.summary,
     jobFilePath: input.jobFilePath,
+    targetDir: paths.targetDir,
+    jobDocument,
+    draftDocument: "",
+    draftChecks: buildDraftChecks(input.drafts),
     drafts: input.drafts,
   };
   const batches = buildDraftExecutionBatches(input.drafts);
@@ -507,7 +554,7 @@ export const runBuildStep = async (input: CliBuildStepInput): Promise<CliBuildSt
             jobId,
             provider: input.provider,
             prompt,
-            workspaceDir: input.workspaceDir,
+            targetDir: paths.targetDir,
             debugLogging: input.debugLogging,
             totalTimeoutMs: input.totalTimeoutMs,
             firstOutputTimeoutMs: input.firstOutputTimeoutMs,
@@ -574,12 +621,21 @@ export const runBuildStep = async (input: CliBuildStepInput): Promise<CliBuildSt
 export const runCheckStep = async (input: CliCheckStepInput): Promise<CliCheckStepResult> => {
   const runner = input.runner ?? defaultJobRunner;
   const policies = await loadPromptPolicies();
+  const paths = resolveExecutionPaths(input);
   const attempt = input.attempt ?? 1;
   const jobId = buildJobId(input.projectId, attempt, "check", "final");
+  await ensureArtifactRootWritable(paths.artifactRoot, "check");
+  const jobDocument = await readFile(input.jobFilePath, "utf8");
+  const draftDocument = await readFile(input.draftDocumentPath, "utf8");
+  const draftMetadata = await readDraftDocument(input.draftDocumentPath);
   const artifacts: AttemptArtifacts = {
     timestamp: input.timestamp,
     summary: input.summary,
     jobFilePath: input.jobFilePath,
+    targetDir: paths.targetDir,
+    jobDocument,
+    draftDocument,
+    draftChecks: draftMetadata.checks,
     drafts: [],
   };
   const prompt = buildCheckPrompt(artifacts, policies);
@@ -592,7 +648,7 @@ export const runCheckStep = async (input: CliCheckStepInput): Promise<CliCheckSt
       jobId,
       provider: input.provider,
       prompt,
-      workspaceDir: input.workspaceDir,
+      targetDir: paths.targetDir,
       debugLogging: input.debugLogging,
       totalTimeoutMs: input.totalTimeoutMs,
       firstOutputTimeoutMs: input.firstOutputTimeoutMs,
@@ -614,7 +670,7 @@ export const runCheckStep = async (input: CliCheckStepInput): Promise<CliCheckSt
             provider: input.provider,
             request: input.request,
             snapshot,
-            workspaceDir: input.workspaceDir,
+            workspaceDir: paths.targetDir,
           })
         : null;
     const decision = classifyCheckDecision(snapshot, providerClaimedCompletion, verification);
@@ -671,7 +727,8 @@ export const runImproveStep = async (input: CliImproveStepInput): Promise<CliImp
 };
 
 export const handleRequest = async (input: CliRequestHandlerInput): Promise<CliRequestHandlerResult> => {
-  const request = await runRequestStep(input.request, input.workspaceDir);
+  const paths = resolveExecutionPaths(input);
+  const request = await runRequestStep(input.request, paths.targetDir);
   const cycles: CliRequestCycleResult[] = [];
   const maxImproveIterations = input.maxImproveIterations ?? 1;
   let currentRequest = input.request;
@@ -680,6 +737,7 @@ export const handleRequest = async (input: CliRequestHandlerInput): Promise<CliR
   if (request.transition === "request->init" || request.transition === "request->import-project") {
     initResult = await runInitStep({
       ...input,
+      targetDir: paths.targetDir,
       request: currentRequest,
       bootstrap: request.transition === "request->init" ? input.bootstrap : false,
     });
@@ -688,6 +746,7 @@ export const handleRequest = async (input: CliRequestHandlerInput): Promise<CliR
   for (let attempt = 1; attempt <= maxImproveIterations + 1; attempt += 1) {
     const stepInput = {
       ...input,
+      targetDir: paths.targetDir,
       request: currentRequest,
     };
     const plan = await runPlanStep({
@@ -737,6 +796,7 @@ export const handleRequest = async (input: CliRequestHandlerInput): Promise<CliR
       timestamp: analyze.timestamp,
       summary: analyze.summary,
       jobFilePath: analyze.jobFilePath,
+      draftDocumentPath: analyze.draftDocumentPath,
       runner: input.runner,
       verifyCompletion: input.verifyCompletion,
     });

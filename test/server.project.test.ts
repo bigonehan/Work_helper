@@ -9,6 +9,7 @@ import {
   buildUniqueTaskName,
   buildLegacyRemovalChecklist,
   buildProjectMetadataPath,
+  createDraftDocument,
   createProjectMetadataDocument,
   detectLegacyRemovalRequest,
   formatJobTimestamp,
@@ -17,6 +18,7 @@ import {
   getConfigValue,
   inferProjectSpec,
   loadTemplateAsset,
+  parseDraftDocument,
   parseProjectMetadataDocument,
   readConfigValue,
   setConfigValue,
@@ -56,22 +58,22 @@ describe("server project helpers", () => {
     expect(buildProjectMetadataPath(rootDir)).toBe(join(rootDir, PROJECT_METADATA_DIR, "project.md"));
 
     expect(buildJobFilePaths(rootDir, "260416_1345", "게시물_삭제")).toEqual({
-      jobDir: join(rootDir, ".project", "job", "260416_1345"),
-      jobFilePath: join(rootDir, ".project", "job", "260416_1345", "job_게시물_삭제.md"),
-      draftsDir: join(rootDir, ".project", "job", "260416_1345", "게시물_삭제"),
-      rgReportPath: join(rootDir, "evidence", "rg-report.txt"),
+      jobFilePath: join(rootDir, ".project", "job.md"),
+      draftsRootDir: join(rootDir, ".project", "drafts"),
+      draftDir: join(rootDir, ".project", "drafts", "게시물_삭제"),
+      draftDocumentPath: join(rootDir, ".project", "drafts", "게시물_삭제", "게시물_삭제.md"),
       captureDir: join(rootDir, PROJECT_CAPTURE_DIR),
     });
   });
 
   test("loads template and config assets through helper functions", async () => {
     const projectTemplate = await loadTemplateAsset("project.md");
-    const draftTemplate = await loadTemplateAsset("draft.yaml");
+    const draftTemplate = await loadTemplateAsset("draft.md");
     const config = await getConfig();
 
     expect(projectTemplate).toContain("# info");
-    expect(draftTemplate).toContain("id:");
-    expect(draftTemplate).toContain("dependsOn:");
+    expect(draftTemplate).toContain("{{front_matter}}");
+    expect(draftTemplate).toContain("## Draft Items");
     expect(getConfigValue(config, "frontendFramework")).toBe("next.js");
     expect(getConfigValue(config, "uiLibrary")).toBe("shadcn");
     expect(getConfigValue(config, "uiMobileCheck")).toBe(
@@ -91,7 +93,36 @@ describe("server project helpers", () => {
 
     expect(workflowRules).toContain("`request -> init -> plan -> analyze -> build -> check`");
     expect(workflowRules).toContain("`job.md`");
-    expect(workflowRules).toContain("`drafts.yaml`");
+    expect(workflowRules).toContain("`./.project/drafts/{summary}/{summary}.md`");
+  });
+
+  test("creates and parses draft bundle markdown metadata", async () => {
+    const document = await createDraftDocument({
+      request: "게시물 삭제 기능 추가",
+      summary: "게시물_삭제",
+      draftItems: [
+        {
+          id: "delete_post",
+          file: "delete_post.yaml",
+          description: "게시물 삭제 서비스를 구현한다",
+        },
+      ],
+      checks: {
+        automated: ["bun test", "bunx tsc --noEmit"],
+        assertions: ["delete_post: 게시물 삭제 서비스를 구현한다"],
+      },
+    });
+    const parsed = parseDraftDocument(document);
+
+    expect(document).toContain("---");
+    expect(document).toContain("delete_post.yaml");
+    expect(parsed.summary).toBe("게시물_삭제");
+    expect(parsed.draftItems[0]).toEqual({
+      id: "delete_post",
+      file: "delete_post.yaml",
+      description: "게시물 삭제 서비스를 구현한다",
+    });
+    expect(parsed.checks.automated).toContain("bun test");
   });
 
   test("sets a config value in a target config file", async () => {

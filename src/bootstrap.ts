@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveExecutionPaths } from "./executionPaths";
 import { waitForProjectJob, submitProjectJobToTmux, destroyProjectTmuxSession } from "./projectManager";
 import { BootstrapProjectTag, MakeProjectTag, createProjectLayerForType } from "./server/artifacts";
 import { buildProjectMetadataPath, parseProjectMetadataDocument } from "./server/project";
@@ -12,8 +13,8 @@ export interface BootstrapMetadata {
   readonly path: string;
 }
 
-export const readProjectBootstrapMetadata = async (workspaceDir: string): Promise<BootstrapMetadata> => {
-  const projectFilePath = buildProjectMetadataPath(workspaceDir);
+export const readProjectBootstrapMetadata = async (artifactRoot: string): Promise<BootstrapMetadata> => {
+  const projectFilePath = buildProjectMetadataPath(artifactRoot);
   const document = await Effect.runPromise(
     Effect.gen(function* () {
       const makeProject = yield* MakeProjectTag;
@@ -76,16 +77,18 @@ export const createBootstrapVerifier =
 
 export const bootstrapProject = async (input: {
   readonly projectId: string;
-  readonly workspaceDir: string;
+  readonly workspaceDir?: string;
+  readonly targetDir?: string;
   readonly provider: Provider;
   readonly debugLogging?: boolean;
   readonly totalTimeoutMs?: number;
   readonly firstOutputTimeoutMs?: number;
   readonly responseTimeoutMs?: number;
 }): Promise<ProjectJobSnapshot> => {
-  const metadata = await readProjectBootstrapMetadata(input.workspaceDir);
+  const paths = resolveExecutionPaths(input);
+  const metadata = await readProjectBootstrapMetadata(paths.artifactRoot);
   const prompt = await buildBootstrapPrompt({
-    workspaceDir: input.workspaceDir,
+    workspaceDir: paths.targetDir,
     projectType: metadata.type,
     projectSpec: metadata.spec,
   });
@@ -97,7 +100,7 @@ export const bootstrapProject = async (input: {
       jobId,
       provider: input.provider,
       prompt,
-      workspaceDir: input.workspaceDir,
+      targetDir: paths.targetDir,
       debugLogging: input.debugLogging,
       totalTimeoutMs: input.totalTimeoutMs,
       firstOutputTimeoutMs: input.firstOutputTimeoutMs,

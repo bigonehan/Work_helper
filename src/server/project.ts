@@ -1,3 +1,4 @@
+import matter from "gray-matter";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProjectSpec, ProjectType } from "../types";
@@ -8,11 +9,29 @@ const TEMPLATE_DIR = join(process.cwd(), "assets", "templates");
 const CONFIG_PATH = join(process.cwd(), "assets", "configs", "config.yaml");
 
 export interface JobFilePaths {
-  readonly jobDir: string;
   readonly jobFilePath: string;
-  readonly draftsDir: string;
-  readonly rgReportPath: string;
+  readonly draftsRootDir: string;
+  readonly draftDir: string;
+  readonly draftDocumentPath: string;
   readonly captureDir: string;
+}
+
+export interface DraftDocumentItem {
+  readonly id: string;
+  readonly file: string;
+  readonly description: string;
+}
+
+export interface DraftDocumentChecks {
+  readonly automated: readonly string[];
+  readonly assertions: readonly string[];
+}
+
+export interface DraftDocumentMetadata {
+  readonly request: string;
+  readonly summary: string;
+  readonly draftItems: readonly DraftDocumentItem[];
+  readonly checks: DraftDocumentChecks;
 }
 
 export const formatJobTimestamp = (date: Date): string => {
@@ -69,14 +88,14 @@ export const buildProjectMetadataPath = (rootDir: string): string =>
   join(rootDir, PROJECT_METADATA_DIR, "project.md");
 
 export const buildJobFilePaths = (rootDir: string, timestamp: string, summary: string): JobFilePaths => ({
-  jobDir: join(rootDir, ".project", "job", timestamp),
-  jobFilePath: join(rootDir, ".project", "job", timestamp, `job_${summary}.md`),
-  draftsDir: join(rootDir, ".project", "job", timestamp, summary),
-  rgReportPath: join(rootDir, "evidence", "rg-report.txt"),
+  jobFilePath: join(rootDir, ".project", "job.md"),
+  draftsRootDir: join(rootDir, ".project", "drafts"),
+  draftDir: join(rootDir, ".project", "drafts", summary),
+  draftDocumentPath: join(rootDir, ".project", "drafts", summary, `${summary}.md`),
   captureDir: join(rootDir, PROJECT_CAPTURE_DIR),
 });
 
-export const loadTemplateAsset = async (templateName: "project.md" | "job.md" | "draft.yaml"): Promise<string> =>
+export const loadTemplateAsset = async (templateName: "project.md" | "job.md" | "draft.yaml" | "draft.md"): Promise<string> =>
   readFile(join(TEMPLATE_DIR, templateName), "utf8");
 
 export const getAgentWorkflowRules = async (agentsPath: string = join(process.cwd(), "AGENTS.md")): Promise<string> => {
@@ -94,6 +113,14 @@ export const getAgentWorkflowRules = async (agentsPath: string = join(process.cw
 
   if (!section.includes("`request -> init -> plan -> analyze -> build -> check`")) {
     throw new Error("AGENTS.md Workflow Rules must define the stage order 'request -> init -> plan -> analyze -> build -> check'.");
+  }
+
+  if (!section.includes("`project.md`") || !section.includes("`job.md`")) {
+    throw new Error("AGENTS.md Workflow Rules must document the project.md and job.md artifacts.");
+  }
+
+  if (!section.includes("`draft")) {
+    throw new Error("AGENTS.md Workflow Rules must document the draft artifact structure.");
   }
 
   return section;
@@ -157,6 +184,83 @@ export const createProjectMetadataDocument = (input: CreateProjectMetadataInput)
     "### rules",
     "### constraints",
   ].join("\n");
+
+const formatYamlScalar = (value: string): string => JSON.stringify(value);
+
+const formatYamlList = (values: readonly string[], indent: string = "  "): string =>
+  values.map((value) => `${indent}- ${formatYamlScalar(value)}`).join("\n");
+
+const formatDraftItemsFrontMatter = (items: readonly DraftDocumentItem[]): string =>
+  items.length === 0
+    ? "  []"
+    : items
+        .map((item) =>
+          [
+            "  - id: " + formatYamlScalar(item.id),
+            "    file: " + formatYamlScalar(item.file),
+            "    description: " + formatYamlScalar(item.description),
+          ].join("\n"),
+        )
+        .join("\n");
+
+const formatMarkdownList = (items: readonly string[]): string =>
+  items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
+
+const formatDraftItemList = (items: readonly DraftDocumentItem[]): string =>
+  items.length === 0 ? "- none" : items.map((item) => `- \`${item.id}\` (${item.file}): ${item.description}`).join("\n");
+
+export const createDraftDocument = async (input: DraftDocumentMetadata): Promise<string> => {
+  const template = await loadTemplateAsset("draft.md");
+  const frontMatter = [
+    "---",
+    `request: ${formatYamlScalar(input.request)}`,
+    `summary: ${formatYamlScalar(input.summary)}`,
+    input.draftItems.length > 0 ? ["draft_items:", formatDraftItemsFrontMatter(input.draftItems)].join("\n") : "draft_items: []",
+    input.checks.automated.length > 0
+      ? ["checks:", "  automated:", formatYamlList(input.checks.automated, "    ")].join("\n")
+      : ["checks:", "  automated: []"].join("\n"),
+    input.checks.assertions.length > 0
+      ? ["  assertions:", formatYamlList(input.checks.assertions, "    ")].join("\n")
+      : "  assertions: []",
+    "---",
+  ].join("\n");
+
+  return template
+    .replace("{{front_matter}}", frontMatter)
+    .replace("{{request}}", input.request)
+    .replace("{{summary}}", input.summary)
+    .replace("{{draft_items}}", formatDraftItemList(input.draftItems))
+    .replace("{{automated_checks}}", formatMarkdownList(input.checks.automated))
+    .replace("{{assertions}}", formatMarkdownList(input.checks.assertions));
+};
+
+export const parseDraftDocument = (document: string): DraftDocumentMetadata => {
+  const parsed = matter(document);
+  const data = (parsed.data ?? {}) as Record<string, unknown>;
+  const draftItemsRaw = Array.isArray(data.draft_items) ? data.draft_items : [];
+  const checksRaw = typeof data.checks === "object" && data.checks !== null ? (data.checks as Record<string, unknown>) : {};
+  const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+  return {
+    request: typeof data.request === "string" ? data.request : "",
+    summary: typeof data.summary === "string" ? data.summary : "",
+    draftItems: draftItemsRaw
+      .filter(isRecord)
+      .map((item) => ({
+        id: typeof item.id === "string" ? item.id : "",
+        file: typeof item.file === "string" ? item.file : "",
+        description: typeof item.description === "string" ? item.description : "",
+      }))
+      .filter((item) => item.id && item.file),
+    checks: {
+      automated: Array.isArray(checksRaw.automated) ? checksRaw.automated.filter((value): value is string => typeof value === "string") : [],
+      assertions: Array.isArray(checksRaw.assertions) ? checksRaw.assertions.filter((value): value is string => typeof value === "string") : [],
+    },
+  };
+};
+
+export const readDraftDocument = async (draftDocumentPath: string): Promise<DraftDocumentMetadata> =>
+  parseDraftDocument(await readFile(draftDocumentPath, "utf8"));
 
 export const parseProjectMetadataDocument = (document: string): ProjectMetadata => {
   const sections = extractMarkdownValueMap(document);

@@ -1,6 +1,6 @@
 {
   "name": "work_helper",
-  "version": "0.1.6",
+  "version": "0.1.13",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "probe:one-plus-one": "bun run src/probe.ts"
   },
   "dependencies": {
-    "effect": "^3.18.4"
+    "effect": "^3.18.4",
+    "gray-matter": "^4.0.3"
   },
   "devDependencies": {
     "@types/bun": "^1.3.10",

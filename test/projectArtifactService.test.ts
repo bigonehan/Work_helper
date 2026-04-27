@@ -66,6 +66,7 @@ describe("project artifact services", () => {
     expect(jobDocument).toContain("#requirements");
     expect(drafts.length).toBeGreaterThan(0);
     expect(drafts[0]?.content).toContain("id:");
+    expect(drafts[0]?.content).toContain("description:");
     expect(drafts[0]?.content).toContain("priority:");
     expect(drafts[0]?.content).toContain("dependsOn:");
     expect(drafts[0]?.priority).toBeGreaterThan(0);

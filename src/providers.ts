@@ -1,4 +1,6 @@
-import type { Provider } from "./types";
+import { realpathSync } from "node:fs";
+import { relative } from "node:path";
+import type { CodexApprovalPolicy, CodexSandboxMode, Provider } from "./types";
 
 export interface ProviderCommand {
   readonly provider: Provider;
@@ -7,6 +9,53 @@ export interface ProviderCommand {
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+const defaultCodexSandbox: CodexSandboxMode = "workspace-write";
+const defaultCodexApprovalPolicy: CodexApprovalPolicy = "never";
+
+const codexSandboxModes = new Set<CodexSandboxMode>(["read-only", "workspace-write"]);
+const codexApprovalPolicies = new Set<CodexApprovalPolicy>(["never"]);
+
+const getCodexSandbox = (): CodexSandboxMode => {
+  const configured = process.env.WORK_HELPER_CODEX_SANDBOX;
+  if (!configured) {
+    return defaultCodexSandbox;
+  }
+
+  if (!codexSandboxModes.has(configured as CodexSandboxMode)) {
+    throw new Error(`Unsupported WORK_HELPER_CODEX_SANDBOX: ${configured}`);
+  }
+
+  return configured as CodexSandboxMode;
+};
+
+const getCodexApprovalPolicy = (): CodexApprovalPolicy => {
+  const configured = process.env.WORK_HELPER_CODEX_APPROVAL_POLICY;
+  if (!configured) {
+    return defaultCodexApprovalPolicy;
+  }
+
+  if (!codexApprovalPolicies.has(configured as CodexApprovalPolicy)) {
+    throw new Error(`Unsupported WORK_HELPER_CODEX_APPROVAL_POLICY: ${configured}`);
+  }
+
+  return configured as CodexApprovalPolicy;
+};
+
+const assertWorkspaceWithinCodexoRoot = (workspaceDir: string): void => {
+  const root = process.env.CODEXO_WORKSPACE_ROOT;
+  if (!root) {
+    return;
+  }
+
+  const realRoot = realpathSync(root);
+  const realWorkspace = realpathSync(workspaceDir);
+  const pathFromRoot = relative(realRoot, realWorkspace);
+  if (pathFromRoot === "" || (!pathFromRoot.startsWith("..") && !pathFromRoot.startsWith("/"))) {
+    return;
+  }
+
+  throw new Error(`Workspace is outside CODEXO_WORKSPACE_ROOT: ${workspaceDir}`);
+};
 
 export const buildProviderCommand = (
   provider: Provider,
@@ -19,16 +68,19 @@ export const buildProviderCommand = (
   const safeMarker = shellQuote(marker);
 
   if (provider === "codex") {
+    assertWorkspaceWithinCodexoRoot(workspaceDir);
+    const sandbox = getCodexSandbox();
+    const approvalPolicy = getCodexApprovalPolicy();
     const inner =
       `cd ${safeWorkspaceDir} && ` +
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never ${safeMsg}; ` +
+      `codex --ask-for-approval ${approvalPolicy} exec --cd ${safeWorkspaceDir} --sandbox ${sandbox} --color never ${safeMsg}; ` +
       `status=$?; printf '\\n${marker}:%s\\n' "$status"; sleep 2`;
 
     return {
       provider,
       argv: ["bash", "-lc", inner],
       commandPreview:
-        "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never <msg>",
+        `codex --ask-for-approval ${approvalPolicy} exec --cd <workspace> --sandbox ${sandbox} --color never <msg>`,
     };
   }
 
