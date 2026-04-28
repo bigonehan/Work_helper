@@ -39,7 +39,7 @@ describe("buildProviderCommand", () => {
     expect(command.argv[2]).toContain("'\\''");
   });
 
-  test("runs child codex with workspace sandbox and no approval waits", () => {
+  test("runs child codex without forcing a sandbox and with no approval waits", () => {
     const command = withEnv(
       {
         CODEXO_WORKSPACE_ROOT: undefined,
@@ -49,11 +49,24 @@ describe("buildProviderCommand", () => {
       () => buildProviderCommand("codex", "build it", process.cwd(), "__MARK__"),
     );
 
-    expect(command.argv[2]).toContain("--sandbox workspace-write");
     expect(command.argv[2]).toContain("codex --ask-for-approval never exec");
     expect(command.argv[2]).toContain("--cd ");
+    expect(command.argv[2]).not.toContain("--sandbox ");
     expect(command.argv[2]).not.toContain("--skip-git-repo-check");
     expect(command.argv[2]).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  test("allows explicitly forcing a sandbox mode through env", () => {
+    const command = withEnv(
+      {
+        CODEXO_WORKSPACE_ROOT: undefined,
+        WORK_HELPER_CODEX_SANDBOX: "workspace-write",
+        WORK_HELPER_CODEX_APPROVAL_POLICY: undefined,
+      },
+      () => buildProviderCommand("codex", "build it", process.cwd(), "__MARK__"),
+    );
+
+    expect(command.argv[2]).toContain("--sandbox workspace-write");
   });
 
   test("blocks child codex workspaces outside CODEXO_WORKSPACE_ROOT", async () => {

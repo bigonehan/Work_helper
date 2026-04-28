@@ -9,10 +9,10 @@ export interface ProviderCommand {
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-const defaultCodexSandbox: CodexSandboxMode = "workspace-write";
+const defaultCodexSandbox: CodexSandboxMode = "inherit";
 const defaultCodexApprovalPolicy: CodexApprovalPolicy = "never";
 
-const codexSandboxModes = new Set<CodexSandboxMode>(["read-only", "workspace-write"]);
+const codexSandboxModes = new Set<CodexSandboxMode>(["inherit", "read-only", "workspace-write"]);
 const codexApprovalPolicies = new Set<CodexApprovalPolicy>(["never"]);
 
 const getCodexSandbox = (): CodexSandboxMode => {
@@ -71,16 +71,17 @@ export const buildProviderCommand = (
     assertWorkspaceWithinCodexoRoot(workspaceDir);
     const sandbox = getCodexSandbox();
     const approvalPolicy = getCodexApprovalPolicy();
+    const sandboxArg = sandbox === "inherit" ? "" : ` --sandbox ${sandbox}`;
     const inner =
       `cd ${safeWorkspaceDir} && ` +
-      `codex --ask-for-approval ${approvalPolicy} exec --cd ${safeWorkspaceDir} --sandbox ${sandbox} --color never ${safeMsg}; ` +
+      `codex --ask-for-approval ${approvalPolicy} exec --cd ${safeWorkspaceDir}${sandboxArg} --color never ${safeMsg}; ` +
       `status=$?; printf '\\n${marker}:%s\\n' "$status"; sleep 2`;
 
     return {
       provider,
       argv: ["bash", "-lc", inner],
       commandPreview:
-        `codex --ask-for-approval ${approvalPolicy} exec --cd <workspace> --sandbox ${sandbox} --color never <msg>`,
+        `codex --ask-for-approval ${approvalPolicy} exec --cd <workspace>${sandboxArg ? " --sandbox <mode>" : ""} --color never <msg>`,
     };
   }
 

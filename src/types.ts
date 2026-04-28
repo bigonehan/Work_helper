@@ -1,7 +1,7 @@
 import type { Layer } from "effect";
 
 export type Provider = "codex" | "gemini";
-export type CodexSandboxMode = "read-only" | "workspace-write";
+export type CodexSandboxMode = "inherit" | "read-only" | "workspace-write";
 export type CodexApprovalPolicy = "never";
 export type ProjectType = "code" | "mono";
 export type ProjectSpec = "typescript" | "python" | "rust";
