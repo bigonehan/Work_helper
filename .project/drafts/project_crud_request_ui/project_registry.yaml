@@ -1,0 +1,20 @@
+id: project_registry
+summary: project_registry
+description: Persist project list entries separately from each project folder's .project artifacts.
+input:
+  - Project type
+  - Project state
+  - Project name
+  - Project path
+output:
+  - .project/project-list.json registry CRUD
+test:
+  - Registry create, update, delete is covered by unit tests.
+  - Project detail still reads from the selected project path .project folder.
+priority: 1
+kind: i/o
+target:
+  - src/server/uiProjectData.ts
+  - app/api/projects
+  - components/project-crud.tsx
+dependsOn: []

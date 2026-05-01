@@ -1,0 +1,23 @@
+id: request_progress
+summary: request_progress
+description: Expose request execution and progress state to the detail page.
+input:
+  - Registered project id
+  - User request text
+  - Manager job snapshots
+output:
+  - Detail request form
+  - Run status API
+  - job.md progress view
+test:
+  - Playwright can submit a todo request and verify generated files.
+  - Mobile and build checks pass.
+priority: 2
+kind: ui
+target:
+  - src/server/projectRuns.ts
+  - app/api/projects/[id]/requests
+  - components/request-runner.tsx
+  - scripts/check-e2e.ts
+dependsOn:
+  - project_registry

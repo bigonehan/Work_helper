@@ -1,0 +1,41 @@
+# id: draft 고유값
+id: next_shadcn_ui
+
+# summary: 파일명과 묶음 관리에 사용하는 짧은 요약명
+summary: next_shadcn_ui
+
+# description: build 세션이 구현해야 하는 작업 설명
+description: Build responsive Next.js/shadcn project and detail pages.
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - project summary data
+  - selected project id
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - /projects page
+  - /projects/[id] detail page
+  - responsive UI config entry
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - Next build succeeds.
+  - Mobile viewport check passes for project and detail pages.
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 2
+
+# kind: calc, ui, i/o, action 중 하나
+kind: ui
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - app
+  - components
+  - scripts/check-mobile.ts
+  - assets/configs/config.yaml
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn:
+  - project_data

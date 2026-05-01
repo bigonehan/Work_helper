@@ -76,6 +76,7 @@ describe("server project helpers", () => {
     expect(draftTemplate).toContain("## Draft Items");
     expect(getConfigValue(config, "frontendFramework")).toBe("next.js");
     expect(getConfigValue(config, "uiLibrary")).toBe("shadcn");
+    expect(getConfigValue(config, "responsiveUi")).toBe("true");
     expect(getConfigValue(config, "uiMobileCheck")).toBe(
       "playwright로 브라우저를 열고 모바일 모드에서 화면 깨짐 여부를 검사한다",
     );

@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+
 export interface TmuxCommandResult {
   readonly stdout: string;
   readonly stderr: string;
@@ -5,18 +7,25 @@ export interface TmuxCommandResult {
 }
 
 const runTmux = async (args: string[]): Promise<TmuxCommandResult> => {
-  const proc = Bun.spawn(["tmux", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const proc = spawn("tmux", args, {
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  proc.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+  proc.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
-  return { stdout, stderr, exitCode };
+  const exitCode = await new Promise<number>((resolve) => {
+    proc.on("close", (code) => resolve(code ?? 1));
+    proc.on("error", () => resolve(1));
+  });
+
+  return {
+    stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+    stderr: Buffer.concat(stderrChunks).toString("utf8"),
+    exitCode,
+  };
 };
 
 export const createDetachedSession = async (

@@ -9,7 +9,7 @@ export interface ProviderCommand {
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-const defaultCodexSandbox: CodexSandboxMode = "inherit";
+const defaultCodexSandbox: CodexSandboxMode = "workspace-write";
 const defaultCodexApprovalPolicy: CodexApprovalPolicy = "never";
 
 const codexSandboxModes = new Set<CodexSandboxMode>(["inherit", "read-only", "workspace-write"]);

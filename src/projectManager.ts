@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { spawn } from "node:child_process";
 import { classifyFailure, extractAnswer, parseMarker } from "./answerExtraction";
 import { logTmuxPromptCompletion, logTmuxPromptDispatch } from "./debugLogging";
 import { resolveExecutionPaths } from "./executionPaths";
@@ -25,6 +26,32 @@ import type {
 } from "./types";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const spawnProcess = (argv: readonly string[]) => {
+  const proc = spawn(argv[0]!, argv.slice(1), {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  proc.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+  proc.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+  return {
+    exited: new Promise<number>((resolve) => {
+      proc.on("close", (code) => resolve(code ?? 1));
+      proc.on("error", () => resolve(1));
+    }),
+    output: new Promise<string>((resolve) => {
+      proc.on("close", () =>
+        resolve(
+          [Buffer.concat(stdoutChunks).toString("utf8").trimEnd(), Buffer.concat(stderrChunks).toString("utf8").trimEnd()]
+            .filter(Boolean)
+            .join("\n"),
+        ),
+      );
+      proc.on("error", (error) => resolve(error.message));
+    }),
+  };
+};
 
 const defaultOptions = {
   totalTimeoutMs: 120_000,
@@ -280,10 +307,7 @@ export const submitProjectJobToTmux = (input: ProjectTmuxJobOptions) =>
         startedAt: record.startedAt,
       };
     } catch {
-      const proc = Bun.spawn([...providerCommand.argv], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      const proc = spawnProcess(providerCommand.argv);
       await logTmuxPromptDispatch(options.debugLogging, {
         scope: "projectManager.dispatch",
         target: options.targetDir,
@@ -301,9 +325,7 @@ export const submitProjectJobToTmux = (input: ProjectTmuxJobOptions) =>
         currentAction: "running direct provider fallback",
         lastObservation: "tmux unavailable; running direct provider fallback.",
         directExitCode: proc.exited,
-        directOutput: Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]).then(
-          ([stdout, stderr]) => [stdout.trimEnd(), stderr.trimEnd()].filter(Boolean).join("\n"),
-        ),
+        directOutput: proc.output,
       };
       jobs.set(jobKey, record);
       record.resultPromise = monitorDirectJob(record, options);
