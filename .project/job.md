@@ -1,26 +1,21 @@
 # requirement
-## Project CRUD and request progress UI
+## Project page type panes
 #requirements
 ##wait
-### [add]Project CRUD and request progress UI
+### [change]Project page type panes
 #### rules
-- Project page supports CRUD for persistent Project list entries.
-- Each registry entry stores type, state, name, and path.
-- Each project's own .project folder remains the source of truth for detail artifacts.
-- Detail page lets the user submit a request and inspect implementation progress, verification state, and job.md content.
+- Project page separates `code` and `mono` projects into distinct panes.
+- Project CRUD behavior remains unchanged inside the separated pane layout.
 ## work
 ## verify
 ## complete
-- Project CRUD and request progress UI implemented and checked.
+- Project page type panes implemented and checked.
 ## fail
 # problems
 # check
 ## logic_checklist
-- Project registry data is loaded from .project/project-list.json.
-- Detail artifacts are loaded from the selected Project path.
 - package.json version is bumped by 0.0.1.
+- Project cards are filtered into the matching `code` or `mono` pane.
 ## ui_checklist
-- /projects renders responsive project CRUD controls.
-- /projects/[id] renders selected project detail content and request progress.
-- Mobile viewport check is available through Playwright.
-- Playwright e2e creates a project and verifies request-driven todo app generation.
+- /projects shows separate panes for `code` and `mono` project types.
+- Empty type panes show a clear empty state.

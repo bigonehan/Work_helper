@@ -1,0 +1,17 @@
+id: project_type_pane_layout
+summary: project_type_panes
+stage: build
+target_files:
+  - components/project-crud.tsx
+  - package.json
+requirements:
+  - Separate project cards into `code` and `mono` panes.
+  - Preserve existing project CRUD controls and state transitions.
+  - Keep the layout responsive for narrow and wide viewports.
+checks:
+  automated:
+    - bun test test/uiProjectData.test.ts
+    - bunx tsc --noEmit
+  assertions:
+    - Projects are filtered by exact type before rendering in each pane.
+    - Empty panes render a concise empty state.

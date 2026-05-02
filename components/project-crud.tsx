@@ -15,6 +15,23 @@ interface ProjectCrudProps {
 const inputClass =
   "h-10 w-full rounded-md border border-[var(--border)] bg-white px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]";
 
+const projectTypePanes: readonly {
+  readonly type: UiProjectSummary["type"];
+  readonly title: string;
+  readonly description: string;
+}[] = [
+  {
+    type: "code",
+    title: "Code",
+    description: "Single codebase projects",
+  },
+  {
+    type: "mono",
+    title: "Mono",
+    description: "Multi-package or monorepo projects",
+  },
+];
+
 export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
   const router = useRouter();
   const [projects, setProjects] = useState([...initialProjects]);
@@ -82,6 +99,77 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
     });
   };
 
+  const renderProjectCard = (project: UiProjectSummary) => (
+    <Card key={project.id} className="flex min-h-72 flex-col">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="truncate">{project.name}</CardTitle>
+            <CardDescription className="mt-2 line-clamp-2">{project.path}</CardDescription>
+          </div>
+          <Badge>{project.state}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col justify-between gap-4">
+        {editingId === project.id ? (
+          <div className="grid gap-2">
+            <input className={inputClass} value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
+            <input className={inputClass} value={editForm.path} onChange={(event) => setEditForm({ ...editForm, path: event.target.value })} />
+            <div className="grid grid-cols-2 gap-2">
+              <select className={inputClass} value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value })}>
+                <option value="code">code</option>
+                <option value="mono">mono</option>
+              </select>
+              <select className={inputClass} value={editForm.state} onChange={(event) => setEditForm({ ...editForm, state: event.target.value })}>
+                <option value="init">init</option>
+                <option value="wait">wait</option>
+                <option value="work">work</option>
+                <option value="check">check</option>
+                <option value="complete">complete</option>
+              </select>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-md bg-[var(--muted)] p-3">
+              <p className="text-[var(--muted-foreground)]">Type</p>
+              <p className="mt-1 font-medium">{project.type}</p>
+            </div>
+            <div className="rounded-md bg-[var(--muted)] p-3">
+              <p className="text-[var(--muted-foreground)]">Drafts</p>
+              <p className="mt-1 font-medium">{project.draftCount}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button asChild size="sm">
+            <a href={`/projects/${project.id}`}>Open</a>
+          </Button>
+          <div className="flex gap-2">
+            {editingId === project.id ? (
+              <>
+                <Button size="icon" variant="outline" onClick={() => save(project.id)} aria-label="Save project">
+                  <Save className="size-4" aria-hidden="true" />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
+              </>
+            ) : (
+              <Button size="icon" variant="outline" onClick={() => startEdit(project)} aria-label="Edit project">
+                <Edit3 className="size-4" aria-hidden="true" />
+              </Button>
+            )}
+            <Button size="icon" variant="ghost" onClick={() => remove(project.id)} aria-label="Delete project">
+              <Trash2 className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -112,77 +200,30 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
 
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {projects.map((project) => (
-          <Card key={project.id} className="flex min-h-72 flex-col">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <CardTitle className="truncate">{project.name}</CardTitle>
-                  <CardDescription className="mt-2 line-clamp-2">{project.path}</CardDescription>
+      <section className="grid gap-5 xl:grid-cols-2">
+        {projectTypePanes.map((pane) => {
+          const paneProjects = projects.filter((project) => project.type === pane.type);
+
+          return (
+            <div key={pane.type} className="rounded-lg border border-[var(--border)] bg-white p-4">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">{pane.title}</h2>
+                  <p className="mt-1 text-sm text-[var(--muted-foreground)]">{pane.description}</p>
                 </div>
-                <Badge>{project.state}</Badge>
+                <Badge variant="secondary">{paneProjects.length} item</Badge>
               </div>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col justify-between gap-4">
-              {editingId === project.id ? (
-                <div className="grid gap-2">
-                  <input className={inputClass} value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
-                  <input className={inputClass} value={editForm.path} onChange={(event) => setEditForm({ ...editForm, path: event.target.value })} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select className={inputClass} value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value })}>
-                      <option value="code">code</option>
-                      <option value="mono">mono</option>
-                    </select>
-                    <select className={inputClass} value={editForm.state} onChange={(event) => setEditForm({ ...editForm, state: event.target.value })}>
-                      <option value="init">init</option>
-                      <option value="wait">wait</option>
-                      <option value="work">work</option>
-                      <option value="check">check</option>
-                      <option value="complete">complete</option>
-                    </select>
-                  </div>
-                </div>
+
+              {paneProjects.length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">{paneProjects.map(renderProjectCard)}</div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-md bg-[var(--muted)] p-3">
-                    <p className="text-[var(--muted-foreground)]">Type</p>
-                    <p className="mt-1 font-medium">{project.type}</p>
-                  </div>
-                  <div className="rounded-md bg-[var(--muted)] p-3">
-                    <p className="text-[var(--muted-foreground)]">Drafts</p>
-                    <p className="mt-1 font-medium">{project.draftCount}</p>
-                  </div>
+                <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--muted)] px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
+                  No {pane.type} projects.
                 </div>
               )}
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Button asChild size="sm">
-                  <a href={`/projects/${project.id}`}>Open</a>
-                </Button>
-                <div className="flex gap-2">
-                  {editingId === project.id ? (
-                    <>
-                      <Button size="icon" variant="outline" onClick={() => save(project.id)} aria-label="Save project">
-                        <Save className="size-4" aria-hidden="true" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
-                        <X className="size-4" aria-hidden="true" />
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="icon" variant="outline" onClick={() => startEdit(project)} aria-label="Edit project">
-                      <Edit3 className="size-4" aria-hidden="true" />
-                    </Button>
-                  )}
-                  <Button size="icon" variant="ghost" onClick={() => remove(project.id)} aria-label="Delete project">
-                    <Trash2 className="size-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+          );
+        })}
       </section>
     </div>
   );
