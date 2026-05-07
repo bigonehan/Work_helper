@@ -39,7 +39,7 @@ describe("buildProviderCommand", () => {
     expect(command.argv[2]).toContain("'\\''");
   });
 
-  test("runs child codex without forcing a sandbox and with no approval waits", () => {
+  test("runs child codex with full filesystem access and no approval waits by default", () => {
     const command = withEnv(
       {
         CODEXO_WORKSPACE_ROOT: undefined,
@@ -51,7 +51,7 @@ describe("buildProviderCommand", () => {
 
     expect(command.argv[2]).toContain("codex --ask-for-approval never exec");
     expect(command.argv[2]).toContain("--cd ");
-    expect(command.argv[2]).not.toContain("--sandbox ");
+    expect(command.argv[2]).toContain("--sandbox danger-full-access");
     expect(command.argv[2]).not.toContain("--skip-git-repo-check");
     expect(command.argv[2]).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });

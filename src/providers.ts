@@ -9,10 +9,10 @@ export interface ProviderCommand {
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-const defaultCodexSandbox: CodexSandboxMode = "workspace-write";
+const defaultCodexSandbox: CodexSandboxMode = "danger-full-access";
 const defaultCodexApprovalPolicy: CodexApprovalPolicy = "never";
 
-const codexSandboxModes = new Set<CodexSandboxMode>(["inherit", "read-only", "workspace-write"]);
+const codexSandboxModes = new Set<CodexSandboxMode>(["inherit", "read-only", "workspace-write", "danger-full-access"]);
 const codexApprovalPolicies = new Set<CodexApprovalPolicy>(["never"]);
 
 const getCodexSandbox = (): CodexSandboxMode => {
