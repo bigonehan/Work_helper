@@ -1,0 +1,19 @@
+id: source_card_component_cleanup
+summary: source_card_cleanup
+stage: build
+target_files:
+  - src/server/uiProjectData.ts
+  - components/project-crud.tsx
+  - components/request-runner.tsx
+  - package.json
+requirements:
+  - Share project type/state option values instead of duplicating literals in card forms and validation.
+  - Pre-group project cards by type instead of filtering inside each pane render.
+  - Remove request runner state that duplicates the current run id.
+checks:
+  automated:
+    - bun test test/uiProjectData.test.ts
+    - bunx tsc --noEmit
+  assertions:
+    - CRUD behavior remains unchanged.
+    - Request polling still follows the active run id.

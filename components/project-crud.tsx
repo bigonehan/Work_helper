@@ -2,11 +2,16 @@
 
 import { Edit3, Plus, Save, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { UiProjectSummary } from "@/src/server/uiProjectData";
+import {
+  PROJECT_REGISTRY_STATES,
+  PROJECT_TYPES,
+  type ProjectRegistryState,
+  type UiProjectSummary,
+} from "@/src/server/uiProjectData";
 
 interface ProjectCrudProps {
   readonly initialProjects: readonly UiProjectSummary[];
@@ -32,14 +37,40 @@ const projectTypePanes: readonly {
   },
 ];
 
+const defaultForm = { name: "", type: "code", state: "init", path: "" } satisfies ProjectForm;
+const projectTypeOptions = PROJECT_TYPES.map((type) => (
+  <option key={type} value={type}>
+    {type}
+  </option>
+));
+const projectStateOptions = PROJECT_REGISTRY_STATES.map((state) => (
+  <option key={state} value={state}>
+    {state}
+  </option>
+));
+
+type ProjectForm = {
+  name: string;
+  type: UiProjectSummary["type"];
+  state: ProjectRegistryState;
+  path: string;
+};
+
 export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
   const router = useRouter();
   const [projects, setProjects] = useState([...initialProjects]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [form, setForm] = useState({ name: "", type: "code", state: "init", path: "" });
-  const [editForm, setEditForm] = useState({ name: "", type: "code", state: "init", path: "" });
+  const [form, setForm] = useState<ProjectForm>(defaultForm);
+  const [editForm, setEditForm] = useState<ProjectForm>(defaultForm);
+  const projectsByType = useMemo(
+    () =>
+      Object.fromEntries(
+        PROJECT_TYPES.map((type) => [type, projects.filter((project) => project.type === type)]),
+      ) as Record<UiProjectSummary["type"], UiProjectSummary[]>,
+    [projects],
+  );
 
   const reload = async () => {
     const response = await fetch("/api/projects", { cache: "no-store" });
@@ -60,7 +91,7 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
         setError(((await response.json()) as { error?: string }).error ?? "Create failed.");
         return;
       }
-      setForm({ name: "", type: "code", state: "init", path: "" });
+      setForm(defaultForm);
       await reload();
     });
   };
@@ -116,16 +147,11 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
             <input className={inputClass} value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
             <input className={inputClass} value={editForm.path} onChange={(event) => setEditForm({ ...editForm, path: event.target.value })} />
             <div className="grid grid-cols-2 gap-2">
-              <select className={inputClass} value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value })}>
-                <option value="code">code</option>
-                <option value="mono">mono</option>
+              <select className={inputClass} value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value as ProjectForm["type"] })}>
+                {projectTypeOptions}
               </select>
-              <select className={inputClass} value={editForm.state} onChange={(event) => setEditForm({ ...editForm, state: event.target.value })}>
-                <option value="init">init</option>
-                <option value="wait">wait</option>
-                <option value="work">work</option>
-                <option value="check">check</option>
-                <option value="complete">complete</option>
+              <select className={inputClass} value={editForm.state} onChange={(event) => setEditForm({ ...editForm, state: event.target.value as ProjectForm["state"] })}>
+                {projectStateOptions}
               </select>
             </div>
           </div>
@@ -179,16 +205,11 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
         </CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-[1fr_9rem_9rem_1.4fr_auto]">
           <input className={inputClass} placeholder="Name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          <select className={inputClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
-            <option value="code">code</option>
-            <option value="mono">mono</option>
+          <select className={inputClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as ProjectForm["type"] })}>
+            {projectTypeOptions}
           </select>
-          <select className={inputClass} value={form.state} onChange={(event) => setForm({ ...form, state: event.target.value })}>
-            <option value="init">init</option>
-            <option value="wait">wait</option>
-            <option value="work">work</option>
-            <option value="check">check</option>
-            <option value="complete">complete</option>
+          <select className={inputClass} value={form.state} onChange={(event) => setForm({ ...form, state: event.target.value as ProjectForm["state"] })}>
+            {projectStateOptions}
           </select>
           <input className={inputClass} placeholder="Path (optional)" value={form.path} onChange={(event) => setForm({ ...form, path: event.target.value })} />
           <Button onClick={create} disabled={isPending || !form.name.trim()}>
@@ -202,7 +223,7 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
 
       <section className="grid gap-5 xl:grid-cols-2">
         {projectTypePanes.map((pane) => {
-          const paneProjects = projects.filter((project) => project.type === pane.type);
+          const paneProjects = projectsByType[pane.type];
 
           return (
             <div key={pane.type} className="rounded-lg border border-[var(--border)] bg-white p-4">

@@ -5,6 +5,9 @@ import type { ProjectType } from "../types";
 
 export type ProjectRegistryState = "init" | "wait" | "work" | "check" | "complete";
 
+export const PROJECT_TYPES = ["code", "mono"] as const satisfies readonly ProjectType[];
+export const PROJECT_REGISTRY_STATES = ["init", "wait", "work", "check", "complete"] as const satisfies readonly ProjectRegistryState[];
+
 export interface ProjectRegistryItem {
   readonly id: string;
   readonly type: ProjectType;
@@ -75,10 +78,10 @@ const toProjectId = (name: string): string =>
 
 const nowIso = () => new Date().toISOString();
 
-const isProjectType = (value: string): value is ProjectType => value === "code" || value === "mono";
+const isProjectType = (value: string): value is ProjectType => PROJECT_TYPES.includes(value as ProjectType);
 
 const isProjectState = (value: string): value is ProjectRegistryState =>
-  value === "init" || value === "wait" || value === "work" || value === "check" || value === "complete";
+  PROJECT_REGISTRY_STATES.includes(value as ProjectRegistryState);
 
 const normalizeProjectInput = (input: ProjectMutationInput): Required<ProjectMutationInput> => {
   const name = input.name.trim();

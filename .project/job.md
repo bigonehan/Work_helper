@@ -1,21 +1,26 @@
 # requirement
-## Project page type panes
+## Source card cleanup
 #requirements
 ##wait
-### [change]Project page type panes
+### [change]Source card and request UI cleanup
 #### rules
-- Project page separates `code` and `mono` projects into distinct panes.
-- Project CRUD behavior remains unchanged inside the separated pane layout.
+- Inspect project/source card UI for unnecessary variables, repeated conditionals, and duplicated option literals.
+- Keep project CRUD and request runner behavior unchanged.
+- Preserve the `request -> plan -> analyze -> build -> check` workflow documents.
 ## work
 ## verify
 ## complete
-- Project page type panes implemented and checked.
+- Source card cleanup implemented and checked.
 ## fail
 # problems
+- Project type/state literals are repeated between data validation and card forms.
+- Project cards filter by type inside render, even though the grouping can be prepared once per project list update.
+- Request runner keeps a separate `runId` state that duplicates `run.runId`.
 # check
 ## logic_checklist
 - package.json version is bumped by 0.0.1.
-- Project cards are filtered into the matching `code` or `mono` pane.
+- Shared project type/state options are used for validation and card controls.
+- Request polling still starts from the submitted run and stops when the run is no longer active.
 ## ui_checklist
-- /projects shows separate panes for `code` and `mono` project types.
-- Empty type panes show a clear empty state.
+- /projects still shows code and mono source card panes.
+- Create, edit, open, save, cancel, and delete controls remain available.

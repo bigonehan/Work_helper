@@ -23,7 +23,6 @@ export function RequestRunner({
   readonly initialJobDocument: string | null;
 }) {
   const [request, setRequest] = useState("Create a minimal React todo app in this project.");
-  const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<ProjectRunRecord | null>(null);
   const [jobDocument, setJobDocument] = useState(initialJobDocument);
   const [drafts, setDrafts] = useState<readonly UiDraftSummary[]>([]);
@@ -47,11 +46,11 @@ export function RequestRunner({
         return;
       }
       setRun(data.run);
-      setRunId(data.run.runId);
     });
   };
 
   useEffect(() => {
+    const runId = run?.runId;
     if (!runId || !isActive) {
       return;
     }
@@ -67,7 +66,7 @@ export function RequestRunner({
     }, 1500);
 
     return () => window.clearInterval(timer);
-  }, [isActive, projectId, runId]);
+  }, [isActive, projectId, run?.runId]);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
