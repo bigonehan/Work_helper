@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { classifyRequirementItemKind, renderJobDocument } from "./job";
 import { buildLegacyRemovalChecklist, buildUniqueTaskName, createProjectMetadataDocument } from "./project";
 import { loadPromptTemplate } from "../prompts";
-import { inferDraftSeedsFromLLM } from "./draftInference";
+import { inferDraftSeedsFromProvider } from "./draftInference";
 import type { DraftSeedInput } from "./draftInference";
 import type {
   BootstrapProjectService,
@@ -14,6 +14,7 @@ import type {
   ManagerDraftArtifact,
   ProjectArtifactService,
   ProjectType,
+  Provider,
   StageRuntimeService,
 } from "../types";
 
@@ -135,10 +136,14 @@ const seedsToNamedSeeds = (seeds: DraftSeedInput[]): DraftSeed[] => {
   }));
 };
 
-const inferDraftSeeds = async (request: string): Promise<DraftSeed[]> => {
-  const llmSeeds = await inferDraftSeedsFromLLM(request);
-  if (llmSeeds && llmSeeds.length > 0) {
-    return seedsToNamedSeeds(llmSeeds);
+const inferDraftSeeds = async (
+  request: string,
+  provider: Provider,
+  workspaceDir: string,
+): Promise<DraftSeed[]> => {
+  const providerSeeds = await inferDraftSeedsFromProvider(request, provider, workspaceDir);
+  if (providerSeeds && providerSeeds.length > 0) {
+    return seedsToNamedSeeds(providerSeeds);
   }
 
   return seedsToNamedSeeds(fallbackDraftSeedInputs(request));
@@ -207,10 +212,14 @@ const createDefaultMakeJobService = (projectType: ProjectType): MakeJobService =
   readJob: async (jobFilePath) => readFile(jobFilePath, "utf8"),
 });
 
-const createDefaultMakeDraftService = (projectType: ProjectType): MakeDraftService => ({
+const createDefaultMakeDraftService = (projectType: ProjectType, provider: Provider): MakeDraftService => ({
   projectType,
   makeDraft: async (context): Promise<readonly ManagerDraftArtifact[]> => {
-    const seeds = await inferDraftSeeds(extractRequestNameFromJobDocument(context.jobDocument || context.request));
+    const seeds = await inferDraftSeeds(
+      extractRequestNameFromJobDocument(context.jobDocument || context.request),
+      provider,
+      context.workspaceDir,
+    );
     return seeds.map((seed) => ({
       draftId: seed.id,
       title: seed.title,
@@ -275,10 +284,10 @@ const createProjectArtifactFacade = (
   buildBootstrapPrompt: (context) => bootstrapProject.bootstrapProject(context),
 });
 
-export const createProjectServiceForType = (projectType: ProjectType): ProjectArtifactService => {
+export const createProjectServiceForType = (projectType: ProjectType, provider: Provider = "codex"): ProjectArtifactService => {
   const makeProject = createDefaultMakeProjectService(projectType);
   const makeJob = createDefaultMakeJobService(projectType);
-  const makeDraft = createDefaultMakeDraftService(projectType);
+  const makeDraft = createDefaultMakeDraftService(projectType, provider);
   const bootstrapProject = createDefaultBootstrapProjectService(projectType);
   const stageRuntime = createDefaultStageRuntimeService(projectType);
   return createProjectArtifactFacade(projectType, makeProject, makeJob, makeDraft, bootstrapProject, stageRuntime);
@@ -312,8 +321,8 @@ export const createProjectLayer = (service: ProjectArtifactService) =>
     Layer.succeed(ProjectTag, service),
   );
 
-export const createProjectLayerForType = (projectType: ProjectType) =>
-  createProjectLayer(createProjectServiceForType(projectType));
+export const createProjectLayerForType = (projectType: ProjectType, provider: Provider = "codex") =>
+  createProjectLayer(createProjectServiceForType(projectType, provider));
 
 export const readProjectJobDocumentEffect = (jobFilePath: string) =>
   Effect.gen(function* () {

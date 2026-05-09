@@ -1,4 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { Effect } from "effect";
+import { runPromptInTmux } from "../runPromptInTmux";
+import type { Provider } from "../types";
 
 export interface DraftSeedInput {
   readonly title: string;
@@ -10,21 +12,6 @@ export interface DraftSeedInput {
   readonly target: readonly string[];
   readonly dependsOn?: readonly number[];
 }
-
-const SYSTEM_PROMPT = `You are a software engineering task decomposer.
-Given a user request, break it down into 1-5 independent or sequential draft tasks.
-
-Rules:
-- title: Short English label (snake_case friendly)
-- input: What this task receives
-- output: What this task produces
-- test: Unit test conditions in Korean (for the build agent)
-- priority: Integer from 1 (lower = runs first)
-- kind: "calc" (pure logic) | "ui" (UI component) | "i/o" (file/API/network) | "action" (side effects: send/delete/create)
-- target: File paths to create or modify (e.g. "src/foo.ts", "test/foo.test.ts")
-- dependsOn: 0-based indices of other drafts this depends on (omit if none)
-
-Return a JSON array only. No markdown fences, no explanation.`;
 
 const kindValues = new Set(["calc", "ui", "i/o", "action"]);
 
@@ -38,6 +25,11 @@ function parseSeeds(raw: string): DraftSeedInput[] | null {
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) {
     text = fenceMatch[1]!.trim();
+  }
+
+  const arrayMatch = text.match(/(\[[\s\S]*\])/);
+  if (arrayMatch) {
+    text = arrayMatch[1]!;
   }
 
   try {
@@ -85,23 +77,48 @@ function parseSeeds(raw: string): DraftSeedInput[] | null {
   }
 }
 
-export const inferDraftSeedsFromLLM = async (request: string): Promise<DraftSeedInput[] | null> => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
+const buildDecomposePrompt = (request: string): string =>
+  [
+    "Decompose the following software request into 1-5 draft tasks.",
+    "Return ONLY a raw JSON array. No markdown, no explanation.",
+    "",
+    "Each item must have these exact fields:",
+    '  title: string  (short English label, snake_case friendly)',
+    '  input: string[]  (what this task receives)',
+    '  output: string[]  (what this task produces)',
+    '  test: string[]  (Korean unit test conditions for the build agent)',
+    '  priority: number  (1 = runs first)',
+    '  kind: "calc" | "ui" | "i/o" | "action"',
+    '  target: string[]  (file paths to create or modify)',
+    '  dependsOn: number[]  (0-based indices of prerequisite tasks; omit if none)',
+    "",
+    `Request: ${request}`,
+  ].join("\n");
 
+export const inferDraftSeedsFromProvider = async (
+  request: string,
+  provider: Provider,
+  workspaceDir: string,
+): Promise<DraftSeedInput[] | null> => {
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: request }],
-    });
+    const result = await Effect.runPromise(
+      runPromptInTmux({
+        provider,
+        msg: buildDecomposePrompt(request),
+        workspaceDir,
+        totalTimeoutMs: 90_000,
+        firstOutputTimeoutMs: 20_000,
+        responseTimeoutMs: 60_000,
+        stableAnswerWindowMs: 4_000,
+        answerValidator: (answer) => (parseSeeds(answer) ? null : "Response is not a valid JSON array of draft seeds"),
+      }),
+    );
 
-    const text = response.content[0]?.type === "text" ? response.content[0].text : "";
-    return parseSeeds(text);
+    if (!result.ok || !result.answer) {
+      return null;
+    }
+
+    return parseSeeds(result.answer);
   } catch {
     return null;
   }

@@ -101,8 +101,8 @@ const managerPollIntervalMs = 10;
 const providerCompletedPattern = /\b(completed|complete|done|finished|success)\b|완료/iu;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function resolveProjectLayer(projectType: ProjectType, projectLayer?: CliPlanStepInput["projectLayer"]) {
-  return projectLayer ?? createProjectLayerForType(projectType);
+function resolveProjectLayer(projectType: ProjectType, provider: Provider, projectLayer?: CliPlanStepInput["projectLayer"]) {
+  return projectLayer ?? createProjectLayerForType(projectType, provider);
 }
 
 function buildArtifactContext(input: CliPlanStepInput | CliAnalyzeStepInput, timestamp: string, summary: string): ProjectArtifactContext {
@@ -362,7 +362,7 @@ export const runProjectBootstrapStep = async (input: CliBootstrapStepInput): Pro
 };
 
 export const runInitStep = async (input: CliInitStepInput): Promise<CliInitStepResult> => {
-  const layer = resolveProjectLayer(input.projectType, input.projectLayer);
+  const layer = resolveProjectLayer(input.projectType, input.provider, input.projectLayer);
   const paths = resolveExecutionPaths(input);
   const projectFilePath = buildProjectMetadataPath(paths.artifactRoot);
   const projectSpec = inferProjectSpec(input.request);
@@ -400,7 +400,7 @@ export const runInitStep = async (input: CliInitStepInput): Promise<CliInitStepR
 };
 
 export const runPlanStep = async (input: CliPlanStepInput): Promise<CliPlanStepResult> => {
-  const layer = resolveProjectLayer(input.projectType, input.projectLayer);
+  const layer = resolveProjectLayer(input.projectType, input.provider, input.projectLayer);
   const paths = resolveExecutionPaths(input);
   const attempt = input.attempt ?? 1;
   const timestamp = formatJobTimestamp(new Date(Date.now() + attempt * 60_000));
@@ -446,7 +446,7 @@ export const runPlanStep = async (input: CliPlanStepInput): Promise<CliPlanStepR
 };
 
 export const runAnalyzeStep = async (input: CliAnalyzeStepInput): Promise<CliAnalyzeStepResult> => {
-  const layer = resolveProjectLayer(input.projectType, input.projectLayer);
+  const layer = resolveProjectLayer(input.projectType, input.provider, input.projectLayer);
   const paths = resolveExecutionPaths(input);
   const projectSpec = input.projectSpec ?? inferProjectSpec(input.request);
   const filePaths = buildJobFilePaths(paths.artifactRoot, input.timestamp, input.summary);
