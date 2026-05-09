@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { classifyRequirementItemKind, renderJobDocument } from "./job";
 import { buildLegacyRemovalChecklist, buildUniqueTaskName, createProjectMetadataDocument } from "./project";
 import { loadPromptTemplate } from "../prompts";
+import { inferDraftSeedsFromLLM } from "./draftInference";
+import type { DraftSeedInput } from "./draftInference";
 import type {
   BootstrapProjectService,
   MakeDraftService,
@@ -23,17 +25,6 @@ export const MakeDraftTag = Context.GenericTag<MakeDraftService>("@work_helper/M
 export const BootstrapProjectTag = Context.GenericTag<BootstrapProjectService>("@work_helper/BootstrapProject");
 export const StageRuntimeTag = Context.GenericTag<StageRuntimeService>("@work_helper/StageRuntime");
 export const ProjectTag = Context.GenericTag<ProjectArtifactService>("@work_helper/Project");
-
-interface DraftSeedInput {
-  readonly title: string;
-  readonly input: readonly string[];
-  readonly output: readonly string[];
-  readonly test: readonly string[];
-  readonly priority: number;
-  readonly kind: "calc" | "ui" | "i/o" | "action";
-  readonly target: readonly string[];
-  readonly dependsOn?: readonly number[];
-}
 
 interface DraftSeed {
   readonly id: string;
@@ -84,23 +75,7 @@ const createDraftYaml = (seed: DraftSeed): string =>
     ...(seed.dependsOn.length > 0 ? ["dependsOn:", ...seed.dependsOn.map((item) => `  - ${item}`)] : ["dependsOn: []"]),
   ].join("\n");
 
-const classifyDraftKind = (text: string): DraftSeed["kind"] => {
-  if (/(ui|screen|page|component|modal|layout|화면|버튼|폼)/iu.test(text)) {
-    return "ui";
-  }
-
-  if (/(api|file|read|write|fetch|upload|download|저장|불러오기|입출력|io)/iu.test(text)) {
-    return "i/o";
-  }
-
-  if (/(send|save|delete|create|update|전송|삭제|생성|추가|수정|출력)/iu.test(text)) {
-    return "action";
-  }
-
-  return "calc";
-};
-
-const inferDraftSeedInputs = (request: string): DraftSeedInput[] => {
+const fallbackDraftSeedInputs = (request: string): DraftSeedInput[] => {
   const trimmed = request.trim();
   if (!trimmed) {
     return [
@@ -112,64 +87,6 @@ const inferDraftSeedInputs = (request: string): DraftSeedInput[] => {
         priority: 1,
         kind: "action",
         target: ["job.md", "drafts"],
-      },
-    ];
-  }
-
-  if (/(student|학생).*(gift|선물)|(gift|선물).*(student|학생)/iu.test(trimmed)) {
-    return [
-      {
-        title: "age band",
-        input: ["student.age"],
-        output: ["학생 나이를 연령대로 분류한다"],
-        test: ["연령대 경계값 unit test를 먼저 작성한다.", "나이별 연령대 결과를 검증한다."],
-        priority: 1,
-        kind: "calc",
-        target: ["src/student.ts", "test/student.test.ts"],
-      },
-      {
-        title: "gift rule",
-        input: ["연령대"],
-        output: ["연령대별 gift를 계산한다"],
-        test: ["gift 매핑 unit test를 먼저 작성한다.", "각 연령대의 gift 결과를 검증한다."],
-        priority: 2,
-        kind: "calc",
-        target: ["src/student.ts", "test/student.test.ts"],
-        dependsOn: [0],
-      },
-      {
-        title: "gift print",
-        input: ["student.name", "student.age"],
-        output: ["student별 gift 출력 결과를 생성한다"],
-        test: ["출력 포맷 unit test를 먼저 작성한다.", "name과 gift가 함께 출력되는지 검증한다."],
-        priority: 3,
-        kind: "action",
-        target: ["src/student.ts", "src/index.ts", "test/student.test.ts"],
-        dependsOn: [1],
-      },
-    ];
-  }
-
-  if (/(생일).*(메시지|알림)|(메시지|알림).*(생일)/u.test(trimmed)) {
-    return [
-      {
-        title: "birthday age",
-        input: ["회원 목록", "오늘 날짜"],
-        output: ["생일 대상 회원 목록을 계산한다"],
-        test: ["생일 판별 unit test를 먼저 작성한다.", "오늘 생일인 회원만 추출되는지 검증한다."],
-        priority: 1,
-        kind: "calc",
-        target: ["src/member.ts", "test/member.test.ts"],
-      },
-      {
-        title: "birthday msg",
-        input: ["생일 대상 회원 목록"],
-        output: ["생일 알림 메시지를 발송한다"],
-        test: ["메시지 발송 unit test를 먼저 작성한다.", "대상 회원별 메시지가 발송되는지 검증한다."],
-        priority: 2,
-        kind: "action",
-        target: ["src/member.ts", "test/member.test.ts"],
-        dependsOn: [0],
       },
     ];
   }
@@ -186,7 +103,7 @@ const inferDraftSeedInputs = (request: string): DraftSeedInput[] => {
       output: [`${part} 기능을 구현한다`],
       test: ["관련 unit test를 먼저 작성한다.", "요청 조건을 만족하는지 검증한다."],
       priority: index + 1,
-      kind: classifyDraftKind(part),
+      kind: "action" as const,
       target: ["src", "test"],
       dependsOn: index === 0 ? [] : [index - 1],
     }));
@@ -199,23 +116,32 @@ const inferDraftSeedInputs = (request: string): DraftSeedInput[] => {
       output: [`${trimmed} 기능을 구현한다`],
       test: ["관련 unit test를 먼저 작성한다.", "요청 조건을 만족하는지 검증한다."],
       priority: 1,
-      kind: classifyDraftKind(trimmed),
+      kind: "action" as const,
       target: ["src", "test"],
     },
   ];
 };
 
-const inferDraftSeeds = (request: string): DraftSeed[] => {
+const seedsToNamedSeeds = (seeds: DraftSeedInput[]): DraftSeed[] => {
   const usedNames = new Set<string>();
-  const seeds = inferDraftSeedInputs(request).map((seed) => ({
+  const named = seeds.map((seed) => ({
     ...seed,
     id: buildUniqueTaskName(seed.title, usedNames),
   }));
 
-  return seeds.map((seed) => ({
+  return named.map((seed) => ({
     ...seed,
-    dependsOn: (seed.dependsOn ?? []).map((dependencyIndex) => seeds[dependencyIndex]?.id ?? "").filter(Boolean),
+    dependsOn: (seed.dependsOn ?? []).map((dependencyIndex) => named[dependencyIndex]?.id ?? "").filter(Boolean),
   }));
+};
+
+const inferDraftSeeds = async (request: string): Promise<DraftSeed[]> => {
+  const llmSeeds = await inferDraftSeedsFromLLM(request);
+  if (llmSeeds && llmSeeds.length > 0) {
+    return seedsToNamedSeeds(llmSeeds);
+  }
+
+  return seedsToNamedSeeds(fallbackDraftSeedInputs(request));
 };
 
 const extractRequestNameFromJobDocument = (jobDocument: string): string => {
@@ -283,8 +209,9 @@ const createDefaultMakeJobService = (projectType: ProjectType): MakeJobService =
 
 const createDefaultMakeDraftService = (projectType: ProjectType): MakeDraftService => ({
   projectType,
-  makeDraft: (context): readonly ManagerDraftArtifact[] =>
-    inferDraftSeeds(extractRequestNameFromJobDocument(context.jobDocument || context.request)).map((seed) => ({
+  makeDraft: async (context): Promise<readonly ManagerDraftArtifact[]> => {
+    const seeds = await inferDraftSeeds(extractRequestNameFromJobDocument(context.jobDocument || context.request));
+    return seeds.map((seed) => ({
       draftId: seed.id,
       title: seed.title,
       description: seed.title,
@@ -301,7 +228,8 @@ const createDefaultMakeDraftService = (projectType: ProjectType): MakeDraftServi
         ...seed,
         test: [...seed.test, "세션 내부에서 unit test를 실행해 통과시킨다."],
       }),
-    })),
+    }));
+  },
 });
 
 const createDefaultBootstrapProjectService = (projectType: ProjectType): BootstrapProjectService => ({

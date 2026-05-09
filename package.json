@@ -15,6 +15,7 @@
     "probe:one-plus-one": "bun run src/probe.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
     "@radix-ui/react-slot": "^1.2.4",
     "@tailwindcss/postcss": "^4.2.4",
     "class-variance-authority": "^0.7.1",
