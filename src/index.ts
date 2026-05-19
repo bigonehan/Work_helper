@@ -75,7 +75,7 @@ export type {
   UiDraftSummary,
   UiProjectDetail,
   UiProjectSummary,
-} from "./server/uiProjectData";
+} from "./types";
 export type { ProjectRunRecord, ProjectRunStatus, StartProjectRunInput } from "./server/projectRuns";
 export {
   MakeProjectTag,

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ProjectRunRecord } from "@/src/server/projectRuns";
-import type { UiDraftSummary } from "@/src/server/uiProjectData";
+import type { UiDraftSummary } from "@/src/types";
 
 interface RunResponse {
   readonly run: ProjectRunRecord;

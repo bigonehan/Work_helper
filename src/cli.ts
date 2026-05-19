@@ -67,6 +67,7 @@ import type {
   ManagerDraftExecution,
   ManagerJobAssessment,
   ManagerVerificationResult,
+  Provider,
   ProjectArtifactContext,
   ProjectJobSnapshot,
   ProjectTmuxJobOptions,

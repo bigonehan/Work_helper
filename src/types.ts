@@ -5,6 +5,59 @@ export type CodexSandboxMode = "inherit" | "read-only" | "workspace-write" | "da
 export type CodexApprovalPolicy = "never";
 export type ProjectType = "code" | "mono";
 export type ProjectSpec = "typescript" | "python" | "rust";
+export type ProjectRegistryState = "init" | "wait" | "work" | "check" | "complete";
+
+export const PROJECT_TYPES = ["code", "mono"] as const satisfies readonly ProjectType[];
+export const PROJECT_REGISTRY_STATES = ["init", "wait", "work", "check", "complete"] as const satisfies readonly ProjectRegistryState[];
+
+export interface ProjectRegistryItem {
+  readonly id: string;
+  readonly type: ProjectType;
+  readonly state: ProjectRegistryState;
+  readonly name: string;
+  readonly path: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface ProjectRegistryDocument {
+  readonly projects: readonly ProjectRegistryItem[];
+}
+
+export interface ProjectMutationInput {
+  readonly name: string;
+  readonly type?: ProjectType;
+  readonly state?: ProjectRegistryState;
+  readonly path?: string;
+}
+
+export interface UiProjectSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly type: ProjectType;
+  readonly description: string;
+  readonly spec: string;
+  readonly path: string;
+  readonly state: ProjectRegistryState;
+  readonly draftCount: number;
+  readonly hasJob: boolean;
+  readonly updatedLabel: string;
+}
+
+export interface UiDraftSummary {
+  readonly summary: string;
+  readonly path: string;
+  readonly itemCount: number;
+  readonly automatedChecks: readonly string[];
+  readonly assertions: readonly string[];
+}
+
+export interface UiProjectDetail {
+  readonly project: UiProjectSummary;
+  readonly projectDocument: string;
+  readonly jobDocument: string | null;
+  readonly drafts: readonly UiDraftSummary[];
+}
 
 export type RunPromptStage =
   | "starting"

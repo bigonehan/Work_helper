@@ -1,61 +1,17 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createProjectMetadataDocument, parseDraftDocument, parseProjectMetadataDocument } from "./project";
-import type { ProjectType } from "../types";
-
-export type ProjectRegistryState = "init" | "wait" | "work" | "check" | "complete";
-
-export const PROJECT_TYPES = ["code", "mono"] as const satisfies readonly ProjectType[];
-export const PROJECT_REGISTRY_STATES = ["init", "wait", "work", "check", "complete"] as const satisfies readonly ProjectRegistryState[];
-
-export interface ProjectRegistryItem {
-  readonly id: string;
-  readonly type: ProjectType;
-  readonly state: ProjectRegistryState;
-  readonly name: string;
-  readonly path: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-export interface ProjectRegistryDocument {
-  readonly projects: readonly ProjectRegistryItem[];
-}
-
-export interface ProjectMutationInput {
-  readonly name: string;
-  readonly type?: ProjectType;
-  readonly state?: ProjectRegistryState;
-  readonly path?: string;
-}
-
-export interface UiProjectSummary {
-  readonly id: string;
-  readonly name: string;
-  readonly type: ProjectType;
-  readonly description: string;
-  readonly spec: string;
-  readonly path: string;
-  readonly state: ProjectRegistryState;
-  readonly draftCount: number;
-  readonly hasJob: boolean;
-  readonly updatedLabel: string;
-}
-
-export interface UiDraftSummary {
-  readonly summary: string;
-  readonly path: string;
-  readonly itemCount: number;
-  readonly automatedChecks: readonly string[];
-  readonly assertions: readonly string[];
-}
-
-export interface UiProjectDetail {
-  readonly project: UiProjectSummary;
-  readonly projectDocument: string;
-  readonly jobDocument: string | null;
-  readonly drafts: readonly UiDraftSummary[];
-}
+import { PROJECT_REGISTRY_STATES, PROJECT_TYPES } from "../types";
+import type {
+  ProjectMutationInput,
+  ProjectRegistryDocument,
+  ProjectRegistryItem,
+  ProjectRegistryState,
+  ProjectType,
+  UiDraftSummary,
+  UiProjectDetail,
+  UiProjectSummary,
+} from "../types";
 
 const projectMetadataPath = (workspaceDir: string) => join(workspaceDir, ".project", "project.md");
 const projectJobPath = (workspaceDir: string) => join(workspaceDir, ".project", "job.md");

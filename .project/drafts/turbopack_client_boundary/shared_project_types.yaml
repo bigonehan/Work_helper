@@ -1,0 +1,37 @@
+# id: draft 고유값
+id: shared_project
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - components/project-crud.tsx client component
+  - src/server/uiProjectData.ts server filesystem module
+  - Next.js Turbopack client chunk generation
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - Shared project constants and UI DTO types are exported from src/types.ts.
+  - Client components consume only client-safe project constants and DTO types.
+  - Server project registry logic keeps its filesystem access isolated to server imports.
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - rg verifies client components do not import src/server/uiProjectData.ts.
+  - bun run build completes without the node:fs/promises client chunk error.
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: calc
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - src/types.ts
+  - src/server/uiProjectData.ts
+  - components/project-crud.tsx
+  - components/request-runner.tsx
+  - src/index.ts
+  - src/cli.ts
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

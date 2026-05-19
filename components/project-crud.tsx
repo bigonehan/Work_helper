@@ -11,7 +11,7 @@ import {
   PROJECT_TYPES,
   type ProjectRegistryState,
   type UiProjectSummary,
-} from "@/src/server/uiProjectData";
+} from "@/src/types";
 
 interface ProjectCrudProps {
   readonly initialProjects: readonly UiProjectSummary[];
@@ -221,7 +221,7 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
 
       {error ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
-      <section className="grid gap-5 xl:grid-cols-2">
+      <section className="grid gap-5">
         {projectTypePanes.map((pane) => {
           const paneProjects = projectsByType[pane.type];
 
@@ -236,7 +236,7 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
               </div>
 
               {paneProjects.length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">{paneProjects.map(renderProjectCard)}</div>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{paneProjects.map(renderProjectCard)}</div>
               ) : (
                 <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--muted)] px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
                   No {pane.type} projects.

@@ -1,0 +1,17 @@
+id: project_type_pane_row_layout
+summary: project_type_pane_row_layout
+stage: build
+target_files:
+  - components/project-crud.tsx
+  - package.json
+requirements:
+  - Remove the wide-screen two-column layout from the project type pane container.
+  - Preserve Code before Mono ordering from `projectTypePanes`.
+  - Let project cards use the wider pane space responsively.
+checks:
+  automated:
+    - bunx tsc --noEmit
+  assertions:
+    - The pane container stays single-column across viewport widths.
+    - The Code pane renders before the Mono pane.
+    - Project cards still map from the filtered pane project list.
