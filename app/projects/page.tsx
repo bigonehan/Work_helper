@@ -1,10 +1,11 @@
 import { FolderKanban } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ProjectCrud } from "@/components/project-crud";
+import { getAppSettings } from "@/src/server/project";
 import { listProjects } from "@/src/server/uiProjectData";
 
 export default async function ProjectsPage() {
-  const projects = await listProjects();
+  const [projects, settings] = await Promise.all([listProjects(), getAppSettings()]);
 
   return (
     <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
@@ -27,7 +28,7 @@ export default async function ProjectsPage() {
           </section>
         ) : null}
 
-        <ProjectCrud initialProjects={projects} />
+        <ProjectCrud initialProjects={projects} initialSettings={settings} />
       </div>
     </main>
   );

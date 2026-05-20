@@ -1,28 +1,32 @@
 # requirement
-## Project type pane row layout
+## Settings modal for default project path
 #requirements
 ##wait
-### [change]Stack project type panes vertically
-#### rules
-- Make the Code and Mono project type panes each occupy a full row.
-- Keep the Code pane above the Mono pane.
-- Keep project CRUD and request runner behavior unchanged.
-- Preserve the `request -> init -> plan -> analyze -> build -> check` workflow order.
 ## work
 ## verify
 ## complete
-- Project type pane row layout implemented and checked.
+### [change]Add settings modal and config-backed default project path
+#### rules
+- Add a gear icon settings entry point on the projects screen.
+- Open a settings modal from the gear button.
+- Allow editing the default project creation path.
+- Store and read the setting from `configs/config.yaml`.
+- Use the configured default path when creating a project with an empty path.
+- Preserve the `request -> init -> plan -> analyze -> build -> check` workflow order.
+- Targeted tests and typecheck completed.
 ## fail
 # problems
-- The project type pane section used `xl:grid-cols-2`, placing Code and Mono panes in the same row on wide screens.
-- The card grid inside each pane was tuned for half-width panes, so it only expanded to two columns at `2xl`.
+- Project creation currently falls back to a hardcoded `.project/workspaces/<project-id>` path.
+- Config helpers currently point at `assets/configs/config.yaml`, while the requested writable location is `configs/config.yaml`.
 # check
 ## logic_checklist
 - package.json version is bumped by 0.0.1.
-- Code and Mono panes render in a single-column pane stack at every viewport width.
-- Project cards remain filtered by exact project type.
-- Existing create, edit, open, save, cancel, and delete controls remain available.
+- `configs/config.yaml` exists and includes the default project path setting.
+- Empty project path creation uses the configured default path plus the project id.
+- Settings API reads and updates the default project path setting.
+- Existing project CRUD behavior remains intact.
 ## ui_checklist
-- /projects shows the Code pane above the Mono pane.
-- Each pane spans the available content width instead of sharing a row.
-- Create, edit, open, save, cancel, and delete controls remain available.
+- Projects page has a gear icon button.
+- Gear button opens a modal.
+- Modal displays and saves the default project creation path.
+- Create project path placeholder reflects the configured default path.

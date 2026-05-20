@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { createProjectMetadataDocument, parseDraftDocument, parseProjectMetadataDocument } from "./project";
+import { isAbsolute, join } from "node:path";
+import { createProjectMetadataDocument, getAppSettings, parseDraftDocument, parseProjectMetadataDocument } from "./project";
 import { PROJECT_REGISTRY_STATES, PROJECT_TYPES } from "../types";
 import type {
   ProjectMutationInput,
@@ -17,6 +17,7 @@ const projectMetadataPath = (workspaceDir: string) => join(workspaceDir, ".proje
 const projectJobPath = (workspaceDir: string) => join(workspaceDir, ".project", "job.md");
 const projectDraftsPath = (workspaceDir: string) => join(workspaceDir, ".project", "drafts");
 const registryPath = (rootDir: string) => join(rootDir, ".project", "project-list.json");
+const configPath = (rootDir: string) => join(rootDir, "configs", "config.yaml");
 
 const readOptionalFile = async (path: string): Promise<string | null> => {
   try {
@@ -39,7 +40,16 @@ const isProjectType = (value: string): value is ProjectType => PROJECT_TYPES.inc
 const isProjectState = (value: string): value is ProjectRegistryState =>
   PROJECT_REGISTRY_STATES.includes(value as ProjectRegistryState);
 
-const normalizeProjectInput = (input: ProjectMutationInput): Required<ProjectMutationInput> => {
+const buildDefaultProjectPath = async (name: string, rootDir: string): Promise<string> => {
+  const settings = await getAppSettings(configPath(rootDir));
+  const basePath = settings.defaultProjectPath.trim() || ".project/workspaces";
+  return isAbsolute(basePath) ? join(basePath, toProjectId(name)) : join(rootDir, basePath, toProjectId(name));
+};
+
+const normalizeProjectInput = async (
+  input: ProjectMutationInput,
+  rootDir: string,
+): Promise<Required<ProjectMutationInput>> => {
   const name = input.name.trim();
   if (!name) {
     throw new Error("Project name is required.");
@@ -58,7 +68,7 @@ const normalizeProjectInput = (input: ProjectMutationInput): Required<ProjectMut
     name,
     type,
     state,
-    path: input.path?.trim() || join(process.cwd(), ".project", "workspaces", toProjectId(name)),
+    path: input.path?.trim() || (await buildDefaultProjectPath(name, rootDir)),
   };
 };
 
@@ -228,7 +238,7 @@ export const createProject = async (
   input: ProjectMutationInput,
   rootDir: string = process.cwd(),
 ): Promise<ProjectRegistryItem> => {
-  const normalized = normalizeProjectInput(input);
+  const normalized = await normalizeProjectInput(input, rootDir);
   const registry = await readRegistry(rootDir);
   const id = buildUniqueProjectId(normalized.name, new Set(registry.projects.map((project) => project.id)));
   const timestamp = nowIso();

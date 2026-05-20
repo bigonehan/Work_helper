@@ -1,6 +1,6 @@
 "use client";
 
-import { Edit3, Plus, Save, Trash2, X } from "lucide-react";
+import { Edit3, Plus, Save, Settings, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -9,12 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import {
   PROJECT_REGISTRY_STATES,
   PROJECT_TYPES,
+  type AppSettings,
   type ProjectRegistryState,
   type UiProjectSummary,
 } from "@/src/types";
 
 interface ProjectCrudProps {
   readonly initialProjects: readonly UiProjectSummary[];
+  readonly initialSettings: AppSettings;
 }
 
 const inputClass =
@@ -56,11 +58,15 @@ type ProjectForm = {
   path: string;
 };
 
-export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
+export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudProps) {
   const router = useRouter();
   const [projects, setProjects] = useState([...initialProjects]);
+  const [settings, setSettings] = useState(initialSettings);
+  const [settingsForm, setSettingsForm] = useState(initialSettings);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState<ProjectForm>(defaultForm);
   const [editForm, setEditForm] = useState<ProjectForm>(defaultForm);
@@ -93,6 +99,32 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
       }
       setForm(defaultForm);
       await reload();
+    });
+  };
+
+  const openSettings = () => {
+    setSettingsForm(settings);
+    setSettingsError(null);
+    setIsSettingsOpen(true);
+  };
+
+  const saveSettings = () => {
+    startTransition(async () => {
+      setSettingsError(null);
+      const response = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(settingsForm),
+      });
+      if (!response.ok) {
+        setSettingsError(((await response.json()) as { error?: string }).error ?? "Settings update failed.");
+        return;
+      }
+      const data = (await response.json()) as { settings: AppSettings };
+      setSettings(data.settings);
+      setSettingsForm(data.settings);
+      setIsSettingsOpen(false);
+      router.refresh();
     });
   };
 
@@ -198,6 +230,50 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex justify-end">
+        <Button size="icon" variant="outline" onClick={openSettings} aria-label="Open settings" title="Settings">
+          <Settings className="size-4" aria-hidden="true" />
+        </Button>
+      </div>
+
+      {isSettingsOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
+              <div>
+                <h2 id="settings-title" className="text-lg font-semibold">
+                  Settings
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">Project creation defaults</p>
+              </div>
+              <Button size="icon" variant="ghost" onClick={() => setIsSettingsOpen(false)} aria-label="Close settings">
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+            <div className="grid gap-4 px-5 py-5">
+              <label className="grid gap-2 text-sm font-medium">
+                Default project path
+                <input
+                  className={inputClass}
+                  value={settingsForm.defaultProjectPath}
+                  onChange={(event) => setSettingsForm({ ...settingsForm, defaultProjectPath: event.target.value })}
+                />
+              </label>
+              {settingsError ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{settingsError}</p> : null}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
+              <Button variant="outline" onClick={() => setIsSettingsOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveSettings} disabled={isPending || !settingsForm.defaultProjectPath.trim()}>
+                <Save className="size-4" aria-hidden="true" />
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Create project</CardTitle>
@@ -211,7 +287,12 @@ export function ProjectCrud({ initialProjects }: ProjectCrudProps) {
           <select className={inputClass} value={form.state} onChange={(event) => setForm({ ...form, state: event.target.value as ProjectForm["state"] })}>
             {projectStateOptions}
           </select>
-          <input className={inputClass} placeholder="Path (optional)" value={form.path} onChange={(event) => setForm({ ...form, path: event.target.value })} />
+          <input
+            className={inputClass}
+            placeholder={`Default: ${settings.defaultProjectPath}/project-id`}
+            value={form.path}
+            onChange={(event) => setForm({ ...form, path: event.target.value })}
+          />
           <Button onClick={create} disabled={isPending || !form.name.trim()}>
             <Plus className="size-4" aria-hidden="true" />
             Create

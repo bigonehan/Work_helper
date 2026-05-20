@@ -76,6 +76,7 @@ describe("server project helpers", () => {
     expect(draftTemplate).toContain("## Draft Items");
     expect(getConfigValue(config, "frontendFramework")).toBe("next.js");
     expect(getConfigValue(config, "uiLibrary")).toBe("shadcn");
+    expect(getConfigValue(config, "defaultProjectPath")).toBe(".project/workspaces");
     expect(getConfigValue(config, "responsiveUi")).toBe("true");
     expect(getConfigValue(config, "uiMobileCheck")).toBe(
       "playwright로 브라우저를 열고 모바일 모드에서 화면 깨짐 여부를 검사한다",
@@ -131,11 +132,11 @@ describe("server project helpers", () => {
     const configPath = join(tempDir, "config.yaml");
     await writeFile(configPath, "frontendFramework: next.js\nuiLibrary: shadcn\n", "utf8");
 
-    await setConfigValue("uiLibrary", "playwright-mobile-check", configPath);
+    await setConfigValue("defaultProjectPath", "/tmp/work-helper-projects", configPath);
 
     const updatedContents = await readFile(configPath, "utf8");
-    expect(updatedContents).toContain("uiLibrary: playwright-mobile-check");
-    await expect(readConfigValue("uiLibrary", configPath)).resolves.toBe("playwright-mobile-check");
+    expect(updatedContents).toContain("defaultProjectPath: /tmp/work-helper-projects");
+    await expect(readConfigValue("defaultProjectPath", configPath)).resolves.toBe("/tmp/work-helper-projects");
   });
 
   test("creates and parses project metadata documents with single-value spec", () => {

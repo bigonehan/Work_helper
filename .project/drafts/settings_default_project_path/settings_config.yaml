@@ -1,0 +1,35 @@
+# id: draft 고유값
+id: settings_config
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - configs/config.yaml
+  - project create request with empty path
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - Settings are read from and written to configs/config.yaml.
+  - Empty project paths resolve under defaultProjectPath.
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - Add unit coverage for defaultProjectPath based project creation.
+  - Add coverage for setting defaultProjectPath in a target config file.
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: i/o
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - src/server/project.ts
+  - src/server/uiProjectData.ts
+  - app/api/settings/route.ts
+  - configs/config.yaml
+  - test/server.project.test.ts
+  - test/uiProjectData.test.ts
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

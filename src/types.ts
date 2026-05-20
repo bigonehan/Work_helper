@@ -31,6 +31,10 @@ export interface ProjectMutationInput {
   readonly path?: string;
 }
 
+export interface AppSettings {
+  readonly defaultProjectPath: string;
+}
+
 export interface UiProjectSummary {
   readonly id: string;
   readonly name: string;

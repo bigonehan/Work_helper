@@ -1,12 +1,13 @@
 import matter from "gray-matter";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { ProjectSpec, ProjectType } from "../types";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import type { AppSettings, ProjectSpec, ProjectType } from "../types";
 
 export const PROJECT_METADATA_DIR = ".project";
 export const PROJECT_CAPTURE_DIR = ".project/captures";
 const TEMPLATE_DIR = join(process.cwd(), "assets", "templates");
-const CONFIG_PATH = join(process.cwd(), "assets", "configs", "config.yaml");
+export const CONFIG_PATH = join(process.cwd(), "configs", "config.yaml");
+export const DEFAULT_PROJECT_PATH = ".project/workspaces";
 
 export interface JobFilePaths {
   readonly jobFilePath: string;
@@ -275,8 +276,27 @@ export const parseProjectMetadataDocument = (document: string): ProjectMetadata 
   };
 };
 
-export const getConfig = async (configPath: string = CONFIG_PATH): Promise<Record<string, string>> =>
-  parseFlatConfig(await readFile(configPath, "utf8"));
+const defaultConfig = (): Record<string, string> => ({
+  logicRuntime: "effect.ts",
+  serverRuntime: "bun",
+  frontendFramework: "next.js",
+  uiLibrary: "shadcn",
+  defaultProjectPath: DEFAULT_PROJECT_PATH,
+  responsiveUi: "true",
+  uiMobileCheck: "playwright로 브라우저를 열고 모바일 모드에서 화면 깨짐 여부를 검사한다",
+  testFirstPolicy: "코드 개선, 수정, 신규 기능 추가 시 unit test를 먼저 작성한다",
+});
+
+export const getConfig = async (configPath: string = CONFIG_PATH): Promise<Record<string, string>> => {
+  try {
+    return { ...defaultConfig(), ...parseFlatConfig(await readFile(configPath, "utf8")) };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return defaultConfig();
+    }
+    throw error;
+  }
+};
 
 export const getConfigValue = (config: Record<string, string>, key: string): string | undefined => config[key];
 
@@ -288,7 +308,29 @@ export const readConfigValue = async (key: string, configPath: string = CONFIG_P
 export const setConfigValue = async (key: string, value: string, configPath: string = CONFIG_PATH): Promise<void> => {
   const config = await getConfig(configPath);
   config[key] = value;
+  await mkdir(dirname(configPath), { recursive: true });
   await writeFile(configPath, serializeFlatConfig(config), "utf8");
+};
+
+export const getAppSettings = async (configPath: string = CONFIG_PATH): Promise<AppSettings> => {
+  const config = await getConfig(configPath);
+  return {
+    defaultProjectPath: getConfigValue(config, "defaultProjectPath") || DEFAULT_PROJECT_PATH,
+  };
+};
+
+export const updateAppSettings = async (
+  input: Partial<AppSettings>,
+  configPath: string = CONFIG_PATH,
+): Promise<AppSettings> => {
+  const defaultProjectPath = input.defaultProjectPath?.trim();
+  if (defaultProjectPath !== undefined && !defaultProjectPath) {
+    throw new Error("Default project path is required.");
+  }
+  if (defaultProjectPath !== undefined) {
+    await setConfigValue("defaultProjectPath", defaultProjectPath, configPath);
+  }
+  return getAppSettings(configPath);
 };
 
 function parseFlatConfig(input: string): Record<string, string> {

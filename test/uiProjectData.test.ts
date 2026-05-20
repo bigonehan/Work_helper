@@ -128,4 +128,23 @@ describe("ui project data", () => {
     await expect(listProjectRegistry(root)).resolves.toEqual([]);
     await expect(readFile(join(projectPath, ".project", "project.md"), "utf8")).resolves.toContain("Todo Demo Updated");
   });
+
+  test("uses configured default project path when create input path is empty", async () => {
+    const root = await createWorkspace();
+    await mkdir(join(root, "configs"), { recursive: true });
+    await writeFile(join(root, "configs", "config.yaml"), "defaultProjectPath: configured-projects\n", "utf8");
+
+    const created = await createProject(
+      {
+        name: "Path Demo",
+        type: "code",
+        state: "init",
+        path: "",
+      },
+      root,
+    );
+
+    expect(created.path).toBe(join(root, "configured-projects", "path-demo"));
+    await expect(readFile(join(created.path, ".project", "project.md"), "utf8")).resolves.toContain("Path Demo");
+  });
 });
