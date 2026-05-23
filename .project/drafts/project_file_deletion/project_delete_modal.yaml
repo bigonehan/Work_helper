@@ -1,0 +1,34 @@
+# id: draft 고유값
+id: project_delete_modal
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - Project card delete action
+  - Project summary availability
+  - Full project path
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - Delete button opens a modal.
+  - Modal separates registry removal from actual file deletion.
+  - Actual file deletion requires typing the project name.
+  - Missing projects show a missing badge and only allow registry removal.
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - TypeScript build validates the UI and API contract.
+  - Manual review verifies the modal text and disabled states.
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 2
+
+# kind: calc, ui, i/o, action 중 하나
+kind: ui
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - components/project-crud.tsx
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn:
+  - project_file_delete_api

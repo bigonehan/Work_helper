@@ -1,5 +1,5 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, parse, resolve } from "node:path";
 import { createProjectMetadataDocument, getAppSettings, parseDraftDocument, parseProjectMetadataDocument } from "./project";
 import { PROJECT_REGISTRY_STATES, PROJECT_TYPES } from "../types";
 import type {
@@ -25,6 +25,18 @@ const readOptionalFile = async (path: string): Promise<string | null> => {
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return null;
+    }
+    throw error;
+  }
+};
+
+const pathExists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
     }
     throw error;
   }
@@ -210,6 +222,7 @@ const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Pr
       draftCount: 0,
       hasJob: false,
       updatedLabel: "No project.md yet",
+      availability: "missing",
     };
   }
 
@@ -228,6 +241,7 @@ const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Pr
     draftCount: drafts.length,
     hasJob: jobDocument !== null,
     updatedLabel: drafts.length > 0 ? `${drafts.length} draft bundle` : "No drafts yet",
+    availability: "ready",
   };
 };
 
@@ -292,6 +306,51 @@ export const deleteProject = async (projectId: string, rootDir: string = process
   return true;
 };
 
+const assertSafeProjectDeleteTarget = async (item: ProjectRegistryItem, rootDir: string): Promise<string> => {
+  const targetPath = resolve(rootDir, item.path);
+  let targetStat;
+  try {
+    targetStat = await stat(targetPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      throw new Error("Project folder was not found.");
+    }
+    throw error;
+  }
+  if (!targetStat.isDirectory()) {
+    throw new Error("Project path is not a directory.");
+  }
+  if ((await lstat(targetPath)).isSymbolicLink()) {
+    throw new Error("Refusing to delete a symbolic link project path.");
+  }
+
+  const metadataPath = projectMetadataPath(targetPath);
+  if (!(await pathExists(metadataPath))) {
+    throw new Error("Project metadata was not found; refusing to delete files.");
+  }
+
+  const [realTarget, realRoot] = await Promise.all([realpath(targetPath), realpath(rootDir)]);
+  const targetRoot = parse(realTarget).root;
+  if (realTarget === targetRoot || realTarget === realRoot) {
+    throw new Error("Refusing to delete an unsafe project path.");
+  }
+
+  return realTarget;
+};
+
+export const deleteProjectFiles = async (projectId: string, rootDir: string = process.cwd()): Promise<boolean> => {
+  const registry = await readRegistry(rootDir);
+  const item = registry.projects.find((project) => project.id === projectId);
+  if (!item) {
+    return false;
+  }
+
+  const realTarget = await assertSafeProjectDeleteTarget(item, rootDir);
+  await rm(realTarget, { recursive: true });
+  await writeRegistry(rootDir, { projects: registry.projects.filter((project) => project.id !== projectId) });
+  return true;
+};
+
 export const listProjects = async (rootDir: string = process.cwd()): Promise<UiProjectSummary[]> => {
   const registry = await readRegistry(rootDir);
   if (registry.projects.length > 0) {
@@ -319,6 +378,7 @@ export const listProjects = async (rootDir: string = process.cwd()): Promise<UiP
       draftCount: drafts.length,
       hasJob: jobDocument !== null,
       updatedLabel: drafts.length > 0 ? `${drafts.length} draft bundle` : "No drafts yet",
+      availability: "ready",
     },
   ];
 };

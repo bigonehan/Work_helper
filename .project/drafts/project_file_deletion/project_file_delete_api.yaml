@@ -1,0 +1,36 @@
+# id: draft 고유값
+id: project_file_delete_api
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - Project registry entries
+  - Project folder paths
+  - DELETE /api/projects/[id] requests
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - Project summaries expose `availability` for ready or missing folders.
+  - Registry-only deletion remains available.
+  - File deletion removes the project folder after server-side safety checks.
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - uiProjectData tests verify registry-only removal preserves files.
+  - uiProjectData tests verify file deletion removes files and registry entries.
+  - uiProjectData tests verify file deletion refuses unsafe or missing targets.
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: i/o
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - src/types.ts
+  - src/server/uiProjectData.ts
+  - app/api/projects/[id]/route.ts
+  - test/uiProjectData.test.ts
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

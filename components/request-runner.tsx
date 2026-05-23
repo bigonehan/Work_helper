@@ -78,6 +78,7 @@ export function RequestRunner({
         <CardContent className="space-y-3">
           <textarea
             className="min-h-32 w-full resize-y rounded-md border border-[var(--border)] bg-white p-3 text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            suppressHydrationWarning
             value={request}
             onChange={(event) => setRequest(event.target.value)}
           />

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import {
   createProject,
   deleteProject,
+  deleteProjectFiles,
   getProjectDetail,
   listProjectRegistry,
   listProjects,
@@ -127,6 +128,49 @@ describe("ui project data", () => {
     await expect(deleteProject(created.id, root)).resolves.toBe(true);
     await expect(listProjectRegistry(root)).resolves.toEqual([]);
     await expect(readFile(join(projectPath, ".project", "project.md"), "utf8")).resolves.toContain("Todo Demo Updated");
+  });
+
+  test("deletes project files and registry entry when requested", async () => {
+    const root = await createWorkspace();
+    const projectPath = join(root, "projects", "delete-demo");
+    const created = await createProject(
+      {
+        name: "Delete Demo",
+        type: "code",
+        state: "init",
+        path: projectPath,
+      },
+      root,
+    );
+
+    await expect(deleteProjectFiles(created.id, root)).resolves.toBe(true);
+    await expect(listProjectRegistry(root)).resolves.toEqual([]);
+    await expect(stat(projectPath)).rejects.toThrow();
+  });
+
+  test("marks registry projects with missing files and refuses file deletion", async () => {
+    const root = await createWorkspace();
+    const projectPath = join(root, "projects", "missing-demo");
+    const created = await createProject(
+      {
+        name: "Missing Demo",
+        type: "code",
+        state: "init",
+        path: projectPath,
+      },
+      root,
+    );
+    await rm(projectPath, { recursive: true });
+
+    const listed = await listProjects(root);
+    expect(listed[0]).toMatchObject({
+      id: created.id,
+      availability: "missing",
+      draftCount: 0,
+      hasJob: false,
+    });
+    await expect(deleteProjectFiles(created.id, root)).rejects.toThrow("Project folder was not found.");
+    await expect(listProjectRegistry(root)).resolves.toHaveLength(1);
   });
 
   test("uses configured default project path when create input path is empty", async () => {

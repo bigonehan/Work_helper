@@ -6,6 +6,7 @@ export type CodexApprovalPolicy = "never";
 export type ProjectType = "code" | "mono";
 export type ProjectSpec = "typescript" | "python" | "rust";
 export type ProjectRegistryState = "init" | "wait" | "work" | "check" | "complete";
+export type ProjectAvailability = "ready" | "missing";
 
 export const PROJECT_TYPES = ["code", "mono"] as const satisfies readonly ProjectType[];
 export const PROJECT_REGISTRY_STATES = ["init", "wait", "work", "check", "complete"] as const satisfies readonly ProjectRegistryState[];
@@ -46,6 +47,7 @@ export interface UiProjectSummary {
   readonly draftCount: number;
   readonly hasJob: boolean;
   readonly updatedLabel: string;
+  readonly availability: ProjectAvailability;
 }
 
 export interface UiDraftSummary {

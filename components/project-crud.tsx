@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCompactProjectPath } from "@/src/pathDisplay";
 import {
   PROJECT_REGISTRY_STATES,
   PROJECT_TYPES,
@@ -64,6 +65,8 @@ export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudPro
   const [settings, setSettings] = useState(initialSettings);
   const [settingsForm, setSettingsForm] = useState(initialSettings);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<UiProjectSummary | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -150,14 +153,30 @@ export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudPro
     });
   };
 
-  const remove = (projectId: string) => {
+  const openDelete = (project: UiProjectSummary) => {
+    setDeleteTarget(project);
+    setDeleteConfirmation("");
+    setError(null);
+  };
+
+  const closeDelete = () => {
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+  };
+
+  const remove = (projectId: string, mode: "files" | "registry") => {
     startTransition(async () => {
       setError(null);
-      const response = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
       if (!response.ok) {
         setError(((await response.json()) as { error?: string }).error ?? "Delete failed.");
         return;
       }
+      closeDelete();
       await reload();
     });
   };
@@ -168,9 +187,14 @@ export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudPro
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <CardTitle className="truncate">{project.name}</CardTitle>
-            <CardDescription className="mt-2 line-clamp-2">{project.path}</CardDescription>
+            <CardDescription className="mt-2 line-clamp-2" title={project.path}>
+              {formatCompactProjectPath(project.path)}
+            </CardDescription>
           </div>
-          <Badge>{project.state}</Badge>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <Badge>{project.state}</Badge>
+            {project.availability === "missing" ? <Badge variant="outline">Missing</Badge> : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col justify-between gap-4">
@@ -201,9 +225,15 @@ export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudPro
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button asChild size="sm">
-            <a href={`/projects/${project.id}`}>Open</a>
-          </Button>
+          {project.availability === "missing" ? (
+            <Button size="sm" disabled>
+              Open
+            </Button>
+          ) : (
+            <Button asChild size="sm">
+              <a href={`/projects/${project.id}`}>Open</a>
+            </Button>
+          )}
           <div className="flex gap-2">
             {editingId === project.id ? (
               <>
@@ -219,7 +249,7 @@ export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudPro
                 <Edit3 className="size-4" aria-hidden="true" />
               </Button>
             )}
-            <Button size="icon" variant="ghost" onClick={() => remove(project.id)} aria-label="Delete project">
+            <Button size="icon" variant="ghost" onClick={() => openDelete(project)} aria-label="Delete project">
               <Trash2 className="size-4" aria-hidden="true" />
             </Button>
           </div>
@@ -269,6 +299,72 @@ export function ProjectCrud({ initialProjects, initialSettings }: ProjectCrudPro
                 <Save className="size-4" aria-hidden="true" />
                 Save
               </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+          <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
+              <div className="min-w-0">
+                <h2 id="delete-title" className="text-lg font-semibold">
+                  Delete project
+                </h2>
+                <p className="mt-1 truncate text-sm text-[var(--muted-foreground)]">{deleteTarget.name}</p>
+              </div>
+              <Button size="icon" variant="ghost" onClick={closeDelete} aria-label="Close delete dialog">
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+            <div className="grid gap-5 px-5 py-5">
+              <div className="rounded-md bg-[var(--muted)] p-3 text-sm">
+                <p className="font-medium">Full path</p>
+                <p className="mt-1 break-all text-[var(--muted-foreground)]">{deleteTarget.path}</p>
+              </div>
+
+              <div className="grid gap-2">
+                <h3 className="text-sm font-semibold">Remove from list</h3>
+                <p className="text-sm leading-6 text-[var(--muted-foreground)]">
+                  Removes this project from the project page. Files stay on disk.
+                </p>
+                <Button variant="outline" className="w-fit" onClick={() => remove(deleteTarget.id, "registry")} disabled={isPending}>
+                  Remove from list
+                </Button>
+              </div>
+
+              <div className="grid gap-3 border-t border-[var(--border)] pt-5">
+                <h3 className="text-sm font-semibold text-red-700">Delete project files</h3>
+                {deleteTarget.availability === "missing" ? (
+                  <p className="text-sm leading-6 text-[var(--muted-foreground)]">
+                    The project folder is missing, so only the registry entry can be removed.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-sm leading-6 text-[var(--muted-foreground)]">
+                      Deletes the project folder from disk and removes this project from the list.
+                    </p>
+                    <label className="grid gap-2 text-sm font-medium">
+                      Type the project name to confirm
+                      <input
+                        className={inputClass}
+                        value={deleteConfirmation}
+                        onChange={(event) => setDeleteConfirmation(event.target.value)}
+                      />
+                    </label>
+                    <Button
+                      variant="outline"
+                      className="w-fit border-red-200 text-red-700 hover:bg-red-50"
+                      onClick={() => remove(deleteTarget.id, "files")}
+                      disabled={isPending || deleteConfirmation !== deleteTarget.name}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                      Delete project files
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

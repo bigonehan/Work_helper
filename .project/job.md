@@ -1,32 +1,34 @@
 # requirement
-## Settings modal for default project path
+## Split project removal and file deletion
 #requirements
 ##wait
 ## work
 ## verify
 ## complete
-### [change]Add settings modal and config-backed default project path
+### [change]Add safe project file deletion from the project page
 #### rules
-- Add a gear icon settings entry point on the projects screen.
-- Open a settings modal from the gear button.
-- Allow editing the default project creation path.
-- Store and read the setting from `configs/config.yaml`.
-- Use the configured default path when creating a project with an empty path.
+- Keep registry-only removal as a separate action.
+- Add a dangerous action that deletes the actual project folder and then removes the registry entry.
+- Require explicit confirmation before deleting files.
+- Show missing project folders in the list instead of silently removing registry entries.
 - Preserve the `request -> init -> plan -> analyze -> build -> check` workflow order.
-- Targeted tests and typecheck completed.
+- Increment `package.json` patch version by `0.0.1`.
+- Complete targeted verification.
 ## fail
 # problems
-- Project creation currently falls back to a hardcoded `.project/workspaces/<project-id>` path.
-- Config helpers currently point at `assets/configs/config.yaml`, while the requested writable location is `configs/config.yaml`.
+- Current project deletion only removes registry entries.
+- If project files disappear outside the app, the list does not make that mismatch clear.
+- Actual folder deletion needs server-side path safety checks.
 # check
 ## logic_checklist
 - package.json version is bumped by 0.0.1.
-- `configs/config.yaml` exists and includes the default project path setting.
-- Empty project path creation uses the configured default path plus the project id.
-- Settings API reads and updates the default project path setting.
-- Existing project CRUD behavior remains intact.
+- Registry-only removal keeps project files.
+- File deletion removes the project folder and registry entry.
+- File deletion refuses missing projects and paths without project metadata.
+- Missing projects are surfaced through the summary availability field.
+- Targeted tests pass.
 ## ui_checklist
-- Projects page has a gear icon button.
-- Gear button opens a modal.
-- Modal displays and saves the default project creation path.
-- Create project path placeholder reflects the configured default path.
+- Delete button opens a confirmation modal.
+- Modal offers `Remove from list` and `Delete project files`.
+- File deletion requires typing the project name and shows the full path.
+- Missing projects show a `Missing` badge and do not offer file deletion.

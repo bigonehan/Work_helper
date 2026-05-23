@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteProject, getProjectDetail, updateProject } from "@/src/server/uiProjectData";
+import { deleteProject, deleteProjectFiles, getProjectDetail, updateProject } from "@/src/server/uiProjectData";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,10 +28,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const deleted = await deleteProject(id);
-  if (!deleted) {
-    return NextResponse.json({ error: "Project not found." }, { status: 404 });
-  }
+  try {
+    const body = await _request.json().catch(() => ({})) as { mode?: "files" | "registry" };
+    const deleted = body.mode === "files" ? await deleteProjectFiles(id) : await deleteProject(id);
+    if (!deleted) {
+      return NextResponse.json({ error: "Project not found." }, { status: 404 });
+    }
 
-  return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+  }
 }

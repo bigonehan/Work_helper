@@ -1,0 +1,32 @@
+# id: draft 고유값
+id: request_textarea_hydration
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - components/request-runner.tsx request textarea
+  - Browser extension injected data-sharkid attribute
+  - Next.js hydration warning
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - The request textarea tolerates extension-injected attribute differences during hydration.
+  - Controlled textarea state and submit behavior remain unchanged.
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - rg verifies suppressHydrationWarning is present on the request textarea.
+  - bun run build completes.
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: ui
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - components/request-runner.tsx
+  - package.json
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []
