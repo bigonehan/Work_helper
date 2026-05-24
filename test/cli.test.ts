@@ -11,7 +11,7 @@ import {
   runInitStep,
   runPlanStep,
 } from "../src/cli";
-import type { CliJobRunner, ProjectJobSnapshot, ProjectTmuxJobOptions } from "../src/types";
+import type { CliJobRunner, ManagerDraftArtifact, ProjectJobSnapshot, ProjectTmuxJobOptions } from "../src/types";
 
 const withCwd = async <T>(dir: string, run: () => Promise<T>): Promise<T> => {
   const previous = process.cwd();
@@ -100,6 +100,32 @@ const createRunner = (snapshots: ProjectJobSnapshot[]) => {
   };
 };
 
+const createBuildDraft = (
+  draftId: string,
+  priority: number,
+  dependsOn: readonly string[] = [],
+): ManagerDraftArtifact => ({
+  draftId,
+  title: `${draftId} title`,
+  summary: draftId,
+  description: `${draftId} implementation`,
+  kind: "action",
+  input: ["request"],
+  output: [`${draftId} output`],
+  test: [`${draftId} test`],
+  priority,
+  target: ["src"],
+  dependsOn,
+  path: `/tmp/${draftId}.yaml`,
+  content: `id: ${draftId}\npriority: ${priority}\ndependsOn: [${dependsOn.join(", ")}]\n`,
+});
+
+const buildDependencyDrafts = (): readonly ManagerDraftArtifact[] => [
+  createBuildDraft("age_band", 1),
+  createBuildDraft("gift_rule", 2, ["age_band"]),
+  createBuildDraft("gift_print", 3, ["gift_rule"]),
+];
+
 describe("cli wrappers", () => {
   test("runInitStep creates project metadata without bootstrap when disabled", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "work-helper-cli-init-"));
@@ -184,7 +210,7 @@ describe("cli wrappers", () => {
         workspaceDir,
         provider: "codex",
       });
-      const analyze = await runAnalyzeStep({
+      const build = await runBuildStep({
         projectId: "demo-project",
         projectType: "code",
         request: "학생 선물 출력 기능 추가",
@@ -192,20 +218,8 @@ describe("cli wrappers", () => {
         provider: "codex",
         timestamp: plan.timestamp,
         summary: plan.summary,
-        projectSpec: plan.projectSpec,
         jobFilePath: plan.jobFilePath,
-        jobDocument: plan.jobDocument,
-      });
-      const build = await runBuildStep({
-        projectId: "demo-project",
-        projectType: "code",
-        request: "학생 선물 출력 기능 추가",
-        workspaceDir,
-        provider: "codex",
-        timestamp: analyze.timestamp,
-        summary: analyze.summary,
-        jobFilePath: analyze.jobFilePath,
-        drafts: analyze.drafts,
+        drafts: buildDependencyDrafts(),
         runner,
       });
 

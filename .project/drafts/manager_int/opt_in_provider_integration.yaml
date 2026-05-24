@@ -1,0 +1,24 @@
+id: opt_in_provider_integration
+summary: opt_in_provider_integration
+kind: change
+priority: 1
+input:
+  - test/manager.integration.test.ts
+  - package.json
+output:
+  - Real provider integrations are skipped by default and available through an env var.
+  - CLI build ordering test uses deterministic draft inputs.
+test:
+  - bun test test/manager.integration.test.ts
+  - bun test test/bootstrap.integration.test.ts
+  - bun test test/cli.test.ts test/manager.test.ts test/uiProjectData.test.ts
+  - bunx tsc --noEmit
+target:
+  - test/manager.integration.test.ts
+  - test/bootstrap.integration.test.ts
+  - test/cli.test.ts
+  - package.json
+dependsOn: []
+content: |
+  Change only the default execution behavior of real provider integration tests. Do not remove the test bodies or tmux/codex coverage.
+  Keep unit tests deterministic by avoiding dependency on provider-inferred draft counts.

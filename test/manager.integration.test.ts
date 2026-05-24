@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createReactTodoAppVerifier, handleManagerRequest } from "../src/manager";
 
 const tempDir = join(homedir(), "temp");
+const providerIntegrationTest = process.env.WORK_HELPER_RUN_PROVIDER_INTEGRATION === "1" ? test : test.skip;
 
 const withCwd = async <T>(dir: string, run: () => Promise<T>): Promise<T> => {
   const previous = process.cwd();
@@ -23,7 +24,7 @@ const prepareArtifactRoot = async (dir: string): Promise<void> => {
 };
 
 describe("manager integration", () => {
-  test("creates a React todo app in ~/temp through tmux-managed codex execution", async () => {
+  providerIntegrationTest("creates a React todo app in ~/temp through tmux-managed codex execution", async () => {
     await rm(tempDir, { recursive: true, force: true });
     const artifactRoot = await mkdtemp(join(homedir(), "work-helper-manager-integration-"));
     await prepareArtifactRoot(artifactRoot);

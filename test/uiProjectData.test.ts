@@ -62,6 +62,45 @@ describe("ui project data", () => {
     });
   });
 
+  test("hides draft bundles for completed local projects", async () => {
+    const workspace = await createWorkspace();
+    await mkdir(join(workspace, ".project", "drafts", "basic"), { recursive: true });
+    await writeFile(
+      join(workspace, ".project", "project.md"),
+      [
+        "# info",
+        "## name",
+        "demo",
+        "## type",
+        "code",
+        "## description",
+        "Demo project",
+        "## spec",
+        "typescript",
+        "## path",
+        workspace,
+        "## state",
+        "complete",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(workspace, ".project", "drafts", "basic", "basic.md"),
+      "---\nsummary: basic\ndraft_items: []\nchecks:\n  automated: []\n  assertions: []\n---\n# Draft Summary\n",
+      "utf8",
+    );
+
+    const projects = await listProjects(workspace);
+    expect(projects[0]).toMatchObject({
+      state: "complete",
+      draftCount: 0,
+      updatedLabel: "No active drafts",
+    });
+
+    const detail = await getProjectDetail("demo", workspace);
+    expect(detail?.drafts).toEqual([]);
+  });
+
   test("loads detail content for the selected project id", async () => {
     const workspace = await createWorkspace();
     await mkdir(join(workspace, ".project"), { recursive: true });
@@ -128,6 +167,45 @@ describe("ui project data", () => {
     await expect(deleteProject(created.id, root)).resolves.toBe(true);
     await expect(listProjectRegistry(root)).resolves.toEqual([]);
     await expect(readFile(join(projectPath, ".project", "project.md"), "utf8")).resolves.toContain("Todo Demo Updated");
+  });
+
+  test("hides registry project draft bundles after completion", async () => {
+    const root = await createWorkspace();
+    const projectPath = join(root, "projects", "draft-demo");
+    const created = await createProject(
+      {
+        name: "Draft Demo",
+        type: "code",
+        state: "work",
+        path: projectPath,
+      },
+      root,
+    );
+    await mkdir(join(projectPath, ".project", "drafts", "basic"), { recursive: true });
+    await writeFile(
+      join(projectPath, ".project", "drafts", "basic", "basic.md"),
+      "---\nsummary: basic\ndraft_items: []\nchecks:\n  automated: []\n  assertions: []\n---\n# Draft Summary\n",
+      "utf8",
+    );
+
+    await expect(listProjects(root)).resolves.toMatchObject([
+      {
+        id: created.id,
+        draftCount: 1,
+      },
+    ]);
+
+    await updateProject(created.id, { state: "complete" }, root);
+
+    await expect(listProjects(root)).resolves.toMatchObject([
+      {
+        id: created.id,
+        draftCount: 0,
+        updatedLabel: "No active drafts",
+      },
+    ]);
+    const detail = await getProjectDetail(created.id, root);
+    expect(detail?.drafts).toEqual([]);
   });
 
   test("deletes project files and registry entry when requested", async () => {

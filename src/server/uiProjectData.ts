@@ -208,6 +208,11 @@ const readDraftSummaries = async (workspaceDir: string): Promise<UiDraftSummary[
   return drafts.filter((draft): draft is UiDraftSummary => draft !== null);
 };
 
+const readActiveDraftSummaries = async (
+  workspaceDir: string,
+  projectState: ProjectRegistryState,
+): Promise<UiDraftSummary[]> => (projectState === "complete" ? [] : readDraftSummaries(workspaceDir));
+
 const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Promise<UiProjectSummary> => {
   const projectDocument = await readOptionalFile(projectMetadataPath(item.path));
   if (!projectDocument) {
@@ -227,7 +232,7 @@ const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Pr
   }
 
   const metadata = parseProjectMetadataDocument(projectDocument);
-  const drafts = await readDraftSummaries(item.path);
+  const drafts = await readActiveDraftSummaries(item.path, item.state);
   const jobDocument = await readOptionalFile(projectJobPath(item.path));
 
   return {
@@ -240,7 +245,7 @@ const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Pr
     state: item.state,
     draftCount: drafts.length,
     hasJob: jobDocument !== null,
-    updatedLabel: drafts.length > 0 ? `${drafts.length} draft bundle` : "No drafts yet",
+    updatedLabel: drafts.length > 0 ? `${drafts.length} draft bundle` : "No active drafts",
     availability: "ready",
   };
 };
@@ -363,7 +368,8 @@ export const listProjects = async (rootDir: string = process.cwd()): Promise<UiP
   }
 
   const metadata = parseProjectMetadataDocument(projectDocument);
-  const drafts = await readDraftSummaries(rootDir);
+  const state = isProjectState(metadata.state) ? metadata.state : "init";
+  const drafts = await readActiveDraftSummaries(rootDir, state);
   const jobDocument = await readOptionalFile(projectJobPath(rootDir));
 
   return [
@@ -374,10 +380,10 @@ export const listProjects = async (rootDir: string = process.cwd()): Promise<UiP
       description: metadata.description,
       spec: metadata.spec,
       path: metadata.path || rootDir,
-      state: isProjectState(metadata.state) ? metadata.state : "init",
+      state,
       draftCount: drafts.length,
       hasJob: jobDocument !== null,
-      updatedLabel: drafts.length > 0 ? `${drafts.length} draft bundle` : "No drafts yet",
+      updatedLabel: drafts.length > 0 ? `${drafts.length} draft bundle` : "No active drafts",
       availability: "ready",
     },
   ];
@@ -405,6 +411,6 @@ export const getProjectDetail = async (
     project,
     projectDocument,
     jobDocument: await readOptionalFile(projectJobPath(detailRoot)),
-    drafts: await readDraftSummaries(detailRoot),
+    drafts: await readActiveDraftSummaries(detailRoot, project.state),
   };
 };

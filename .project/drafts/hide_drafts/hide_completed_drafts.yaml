@@ -1,0 +1,17 @@
+id: hide_completed_drafts
+summary: hide_completed_drafts
+kind: change
+priority: 1
+input:
+  - src/server/uiProjectData.ts
+  - test/uiProjectData.test.ts
+output:
+  - Completed projects expose zero active draft bundles in UI data.
+test:
+  - bun test test/uiProjectData.test.ts
+target:
+  - src/server/uiProjectData.ts
+  - test/uiProjectData.test.ts
+dependsOn: []
+content: |
+  Treat draft bundles as active only while the project state is not complete. Keep existing artifact files intact.

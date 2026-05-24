@@ -7,6 +7,7 @@ import { buildProjectMetadataPath, createProjectMetadataDocument } from "../src/
 
 const tempDir = join(homedir(), "temp");
 const specs = ["rust", "typescript", "python"] as const;
+const providerIntegrationTest = process.env.WORK_HELPER_RUN_PROVIDER_INTEGRATION === "1" ? test : test.skip;
 
 const withCwd = async <T>(dir: string, run: () => Promise<T>): Promise<T> => {
   const previous = process.cwd();
@@ -25,7 +26,7 @@ const prepareArtifactRoot = async (dir: string): Promise<void> => {
 };
 
 describe("bootstrap integration", () => {
-  test(
+  providerIntegrationTest(
     "creates hello world projects in ~/temp based on project.md spec",
     async () => {
       await rm(tempDir, { recursive: true, force: true });
