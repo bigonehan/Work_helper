@@ -1,30 +1,28 @@
 # requirement
-## Prevent default test suite from hanging on provider integrations
+## Show mono project domain files on detail page
 #requirements
 ##wait
 ## work
 ## verify
 ## complete
-### [change]Make real provider integrations opt-in
+### [change]Expose mono domain files in project detail
 #### rules
-- Identify why `bun test` stalls in `test/manager.integration.test.ts`.
-- Keep real tmux/codex integrations available for explicit runs.
-- Exclude slow real provider integrations from the default test suite unless an environment variable opts in.
-- Make draft dependency-order tests independent from provider-generated draft counts.
+- For projects whose type is `mono`, load domain files from the project's `.project/domains` folder.
+- Show those domain files on the project detail page.
+- Keep code project detail behavior unchanged.
 - Preserve request -> init -> plan -> analyze -> build -> check workflow order.
 - Increment package.json patch version by 0.0.1.
 - Complete targeted verification.
 ## fail
 # problems
-- Default `bun test` invokes real delegated `codex exec` sessions and can wait for minutes with little output.
-- Provider-backed integrations are nondeterministic for routine local/CI verification.
-- A CLI unit test depended on inferred draft count, which can vary by provider output.
+- Detail pages currently expose job, type, spec, and drafts only.
+- Mono users cannot inspect which domain files exist without browsing the filesystem.
 # check
 ## logic_checklist
 - package.json version is bumped by 0.0.1.
-- Default manager and bootstrap integration tests are skipped without the opt-in environment variable.
-- Opt-in path remains available for real provider integrations.
-- CLI dependency-order test uses deterministic mock drafts.
-- Targeted tests pass.
+- Mono project details include sorted `.project/domains` file summaries.
+- Missing domain directories return an empty list without failing detail loading.
+- Code project details keep an empty domain file list.
 ## ui_checklist
-- Not applicable; test harness change only.
+- Mono detail pages show a Domains panel with file names and relative paths.
+- Non-mono detail pages do not show the Domains panel.

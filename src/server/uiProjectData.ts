@@ -1,5 +1,5 @@
 import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, parse, resolve } from "node:path";
+import { isAbsolute, join, parse, relative, resolve } from "node:path";
 import { createProjectMetadataDocument, getAppSettings, parseDraftDocument, parseProjectMetadataDocument } from "./project";
 import { PROJECT_REGISTRY_STATES, PROJECT_TYPES } from "../types";
 import type {
@@ -8,6 +8,7 @@ import type {
   ProjectRegistryItem,
   ProjectRegistryState,
   ProjectType,
+  UiDomainFileSummary,
   UiDraftSummary,
   UiProjectDetail,
   UiProjectSummary,
@@ -16,6 +17,7 @@ import type {
 const projectMetadataPath = (workspaceDir: string) => join(workspaceDir, ".project", "project.md");
 const projectJobPath = (workspaceDir: string) => join(workspaceDir, ".project", "job.md");
 const projectDraftsPath = (workspaceDir: string) => join(workspaceDir, ".project", "drafts");
+const projectDomainsPath = (workspaceDir: string) => join(workspaceDir, ".project", "domains");
 const registryPath = (rootDir: string) => join(rootDir, ".project", "project-list.json");
 const configPath = (rootDir: string) => join(rootDir, "configs", "config.yaml");
 
@@ -212,6 +214,49 @@ const readActiveDraftSummaries = async (
   workspaceDir: string,
   projectState: ProjectRegistryState,
 ): Promise<UiDraftSummary[]> => (projectState === "complete" ? [] : readDraftSummaries(workspaceDir));
+
+const readDomainFileSummaries = async (workspaceDir: string, projectType: ProjectType): Promise<UiDomainFileSummary[]> => {
+  if (projectType !== "mono") {
+    return [];
+  }
+
+  const domainsRoot = projectDomainsPath(workspaceDir);
+
+  const walk = async (dir: string): Promise<UiDomainFileSummary[]> => {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+
+    const summaries = await Promise.all(
+      entries.map(async (entry) => {
+        const entryPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          return walk(entryPath);
+        }
+        if (!entry.isFile()) {
+          return [];
+        }
+
+        return [
+          {
+            name: entry.name,
+            path: relative(domainsRoot, entryPath),
+          },
+        ];
+      }),
+    );
+
+    return summaries.flat();
+  };
+
+  return (await walk(domainsRoot)).sort((left, right) => left.path.localeCompare(right.path));
+};
 
 const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Promise<UiProjectSummary> => {
   const projectDocument = await readOptionalFile(projectMetadataPath(item.path));
@@ -411,6 +456,7 @@ export const getProjectDetail = async (
     project,
     projectDocument,
     jobDocument: await readOptionalFile(projectJobPath(detailRoot)),
+    domainFiles: await readDomainFileSummaries(detailRoot, project.type),
     drafts: await readActiveDraftSummaries(detailRoot, project.state),
   };
 };

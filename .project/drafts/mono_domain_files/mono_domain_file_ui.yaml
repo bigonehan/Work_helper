@@ -1,0 +1,14 @@
+id: domain_file_ui
+input:
+  - UiProjectDetail.domainFiles
+  - project detail page
+output:
+  - mono-only Domains panel on the project detail page
+test:
+  - run TypeScript compile check
+priority: 2
+kind: ui
+target:
+  - app/projects/[id]/page.tsx
+dependsOn:
+  - domain_file_data

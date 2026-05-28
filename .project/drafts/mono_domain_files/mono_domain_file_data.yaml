@@ -1,0 +1,16 @@
+id: domain_file_data
+input:
+  - mono project detail request
+  - .project/domains directory contents
+output:
+  - UiProjectDetail.domainFiles contains sorted file summaries for mono projects
+test:
+  - add uiProjectData coverage for mono domain files
+  - add coverage for missing domain directories
+priority: 1
+kind: i/o
+target:
+  - src/types.ts
+  - src/server/uiProjectData.ts
+  - test/uiProjectData.test.ts
+dependsOn: []

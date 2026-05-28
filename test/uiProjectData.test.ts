@@ -114,7 +114,55 @@ describe("ui project data", () => {
     const detail = await getProjectDetail("demo", workspace);
     expect(detail?.project.name).toBe("demo");
     expect(detail?.jobDocument).toContain("Demo Job");
+    expect(detail?.domainFiles).toEqual([]);
     await expect(getProjectDetail("missing", workspace)).resolves.toBeNull();
+  });
+
+  test("loads mono project domain file summaries from project artifacts", async () => {
+    const root = await createWorkspace();
+    const projectPath = join(root, "projects", "mono-demo");
+    const created = await createProject(
+      {
+        name: "Mono Demo",
+        type: "mono",
+        state: "work",
+        path: projectPath,
+      },
+      root,
+    );
+    await mkdir(join(projectPath, ".project", "domains", "billing"), { recursive: true });
+    await writeFile(join(projectPath, ".project", "domains", "orders.md"), "# Orders\n", "utf8");
+    await writeFile(join(projectPath, ".project", "domains", "billing", "invoice.yaml"), "name: invoice\n", "utf8");
+
+    const detail = await getProjectDetail(created.id, root);
+
+    expect(detail?.domainFiles).toEqual([
+      {
+        name: "invoice.yaml",
+        path: join("billing", "invoice.yaml"),
+      },
+      {
+        name: "orders.md",
+        path: "orders.md",
+      },
+    ]);
+  });
+
+  test("keeps mono project detail loading when domain files are missing", async () => {
+    const root = await createWorkspace();
+    const created = await createProject(
+      {
+        name: "No Domains Demo",
+        type: "mono",
+        state: "work",
+        path: join(root, "projects", "no-domains-demo"),
+      },
+      root,
+    );
+
+    const detail = await getProjectDetail(created.id, root);
+
+    expect(detail?.domainFiles).toEqual([]);
   });
 
   test("persists project registry crud separately from project detail artifacts", async () => {

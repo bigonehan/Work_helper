@@ -58,10 +58,16 @@ export interface UiDraftSummary {
   readonly assertions: readonly string[];
 }
 
+export interface UiDomainFileSummary {
+  readonly name: string;
+  readonly path: string;
+}
+
 export interface UiProjectDetail {
   readonly project: UiProjectSummary;
   readonly projectDocument: string;
   readonly jobDocument: string | null;
+  readonly domainFiles: readonly UiDomainFileSummary[];
   readonly drafts: readonly UiDraftSummary[];
 }
 

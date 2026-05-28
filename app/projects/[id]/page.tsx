@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, FileText } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, FolderTree } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +85,31 @@ export default async function ProjectDetailPage({
               </CardHeader>
               <CardContent className="text-sm text-[var(--muted-foreground)]">{detail.drafts.length}</CardContent>
             </Card>
+            {detail.project.type === "mono" ? (
+              <Card className="sm:col-span-3 lg:col-span-1">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="text-base">Domains</CardTitle>
+                    <FolderTree className="size-4 text-[var(--muted-foreground)]" aria-hidden="true" />
+                  </div>
+                  <CardDescription>Files in .project/domains</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {detail.domainFiles.length > 0 ? (
+                    <ul className="space-y-2 text-sm">
+                      {detail.domainFiles.map((domainFile) => (
+                        <li key={domainFile.path} className="rounded-md bg-[var(--muted)] px-3 py-2">
+                          <p className="break-words font-medium text-[var(--foreground)]">{domainFile.name}</p>
+                          <p className="mt-1 break-words text-xs text-[var(--muted-foreground)]">{domainFile.path}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-[var(--muted-foreground)]">No domain files found.</p>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
           </div>
         </section>
 
