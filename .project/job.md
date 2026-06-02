@@ -1,28 +1,29 @@
 # requirement
-## Show mono project domain files on detail page
+## Point detail page domains to type-specific source domain files
 #requirements
 ##wait
 ## work
 ## verify
 ## complete
-### [change]Expose mono domain files in project detail
+### [change]Use source domain directories by project type
 #### rules
-- For projects whose type is `mono`, load domain files from the project's `.project/domains` folder.
-- Show those domain files on the project detail page.
-- Keep code project detail behavior unchanged.
+- For `mono` projects, load detail page domain entries from `packages/domains`.
+- For `code` projects, load detail page domain entries from `src/domains`.
+- Show the Domains panel for both project types, with empty-state behavior when the selected directory is missing.
 - Preserve request -> init -> plan -> analyze -> build -> check workflow order.
 - Increment package.json patch version by 0.0.1.
 - Complete targeted verification.
 ## fail
 # problems
-- Detail pages currently expose job, type, spec, and drafts only.
-- Mono users cannot inspect which domain files exist without browsing the filesystem.
+- Domain detail data currently only loads `mono` projects.
+- Domain detail data currently reads `.project/domains`, not source domain folders.
+- Code project detail pages currently hide the Domains panel.
 # check
 ## logic_checklist
 - package.json version is bumped by 0.0.1.
-- Mono project details include sorted `.project/domains` file summaries.
+- Mono project details include sorted file summaries under `packages/domains`.
+- Code project details include sorted file summaries under `src/domains`.
 - Missing domain directories return an empty list without failing detail loading.
-- Code project details keep an empty domain file list.
 ## ui_checklist
-- Mono detail pages show a Domains panel with file names and relative paths.
-- Non-mono detail pages do not show the Domains panel.
+- Detail pages show a Domains panel for both code and mono projects.
+- Domains panel description names the type-specific source directory.

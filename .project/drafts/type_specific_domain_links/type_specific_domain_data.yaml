@@ -1,0 +1,18 @@
+id: type_specific_domain_data
+input:
+  - project detail request
+  - project type
+  - packages/domains or src/domains directory contents
+output:
+  - UiProjectDetail.domainFiles contains sorted source domain file summaries for the project type
+test:
+  - add uiProjectData coverage for mono packages/domains files
+  - add uiProjectData coverage for code src/domains files
+  - keep missing domain directory coverage
+priority: 1
+kind: i/o
+target:
+  - src/types.ts
+  - src/server/uiProjectData.ts
+  - test/uiProjectData.test.ts
+dependsOn: []

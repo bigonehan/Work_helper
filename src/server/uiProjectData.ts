@@ -17,7 +17,8 @@ import type {
 const projectMetadataPath = (workspaceDir: string) => join(workspaceDir, ".project", "project.md");
 const projectJobPath = (workspaceDir: string) => join(workspaceDir, ".project", "job.md");
 const projectDraftsPath = (workspaceDir: string) => join(workspaceDir, ".project", "drafts");
-const projectDomainsPath = (workspaceDir: string) => join(workspaceDir, ".project", "domains");
+const projectDomainsPath = (workspaceDir: string, projectType: ProjectType) =>
+  join(workspaceDir, projectType === "mono" ? "packages/domains" : "src/domains");
 const registryPath = (rootDir: string) => join(rootDir, ".project", "project-list.json");
 const configPath = (rootDir: string) => join(rootDir, "configs", "config.yaml");
 
@@ -216,11 +217,7 @@ const readActiveDraftSummaries = async (
 ): Promise<UiDraftSummary[]> => (projectState === "complete" ? [] : readDraftSummaries(workspaceDir));
 
 const readDomainFileSummaries = async (workspaceDir: string, projectType: ProjectType): Promise<UiDomainFileSummary[]> => {
-  if (projectType !== "mono") {
-    return [];
-  }
-
-  const domainsRoot = projectDomainsPath(workspaceDir);
+  const domainsRoot = projectDomainsPath(workspaceDir, projectType);
 
   const walk = async (dir: string): Promise<UiDomainFileSummary[]> => {
     let entries;
@@ -246,7 +243,7 @@ const readDomainFileSummaries = async (workspaceDir: string, projectType: Projec
         return [
           {
             name: entry.name,
-            path: relative(domainsRoot, entryPath),
+            path: relative(workspaceDir, entryPath),
           },
         ];
       }),

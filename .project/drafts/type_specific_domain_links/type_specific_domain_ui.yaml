@@ -1,0 +1,14 @@
+id: type_specific_domain_ui
+input:
+  - UiProjectDetail.domainFiles
+  - project type
+output:
+  - Project detail Domains panel appears for code and mono projects with the selected source directory label
+test:
+  - run TypeScript check for page type safety
+priority: 2
+kind: ui
+target:
+  - app/projects/[id]/page.tsx
+dependsOn:
+  - type_specific_domain_data

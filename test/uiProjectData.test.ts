@@ -118,7 +118,7 @@ describe("ui project data", () => {
     await expect(getProjectDetail("missing", workspace)).resolves.toBeNull();
   });
 
-  test("loads mono project domain file summaries from project artifacts", async () => {
+  test("loads mono project domain file summaries from packages domains", async () => {
     const root = await createWorkspace();
     const projectPath = join(root, "projects", "mono-demo");
     const created = await createProject(
@@ -130,20 +130,50 @@ describe("ui project data", () => {
       },
       root,
     );
-    await mkdir(join(projectPath, ".project", "domains", "billing"), { recursive: true });
-    await writeFile(join(projectPath, ".project", "domains", "orders.md"), "# Orders\n", "utf8");
-    await writeFile(join(projectPath, ".project", "domains", "billing", "invoice.yaml"), "name: invoice\n", "utf8");
+    await mkdir(join(projectPath, "packages", "domains", "billing"), { recursive: true });
+    await writeFile(join(projectPath, "packages", "domains", "orders.md"), "# Orders\n", "utf8");
+    await writeFile(join(projectPath, "packages", "domains", "billing", "invoice.yaml"), "name: invoice\n", "utf8");
 
     const detail = await getProjectDetail(created.id, root);
 
     expect(detail?.domainFiles).toEqual([
       {
         name: "invoice.yaml",
-        path: join("billing", "invoice.yaml"),
+        path: join("packages", "domains", "billing", "invoice.yaml"),
       },
       {
         name: "orders.md",
-        path: "orders.md",
+        path: join("packages", "domains", "orders.md"),
+      },
+    ]);
+  });
+
+  test("loads code project domain file summaries from src domains", async () => {
+    const root = await createWorkspace();
+    const projectPath = join(root, "projects", "code-demo");
+    const created = await createProject(
+      {
+        name: "Code Demo",
+        type: "code",
+        state: "work",
+        path: projectPath,
+      },
+      root,
+    );
+    await mkdir(join(projectPath, "src", "domains", "billing"), { recursive: true });
+    await writeFile(join(projectPath, "src", "domains", "orders.ts"), "export const domain = 'orders';\n", "utf8");
+    await writeFile(join(projectPath, "src", "domains", "billing", "invoice.ts"), "export const domain = 'invoice';\n", "utf8");
+
+    const detail = await getProjectDetail(created.id, root);
+
+    expect(detail?.domainFiles).toEqual([
+      {
+        name: "invoice.ts",
+        path: join("src", "domains", "billing", "invoice.ts"),
+      },
+      {
+        name: "orders.ts",
+        path: join("src", "domains", "orders.ts"),
       },
     ]);
   });
