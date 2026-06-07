@@ -1,0 +1,13 @@
+id: source_symbol_ui
+input:
+  - UiProjectDetail.sourceFolders
+output:
+  - project detail page renders Feature and Domains symbol sections without source file paths
+test:
+  - typecheck the detail page render path
+priority: 2
+kind: ui
+target:
+  - app/projects/[id]/page.tsx
+dependsOn:
+  - source_symbol_data

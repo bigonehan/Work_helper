@@ -1,5 +1,6 @@
 import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, parse, relative, resolve } from "node:path";
+import { extname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import ts from "typescript";
 import { createProjectMetadataDocument, getAppSettings, parseDraftDocument, parseProjectMetadataDocument } from "./project";
 import { PROJECT_REGISTRY_STATES, PROJECT_TYPES } from "../types";
 import type {
@@ -12,6 +13,8 @@ import type {
   UiDraftSummary,
   UiProjectDetail,
   UiProjectSummary,
+  UiSourceFolderSummary,
+  UiSourceSymbolSummary,
 } from "../types";
 
 const projectMetadataPath = (workspaceDir: string) => join(workspaceDir, ".project", "project.md");
@@ -19,8 +22,13 @@ const projectJobPath = (workspaceDir: string) => join(workspaceDir, ".project", 
 const projectDraftsPath = (workspaceDir: string) => join(workspaceDir, ".project", "drafts");
 const projectDomainsPath = (workspaceDir: string, projectType: ProjectType) =>
   join(workspaceDir, projectType === "mono" ? "packages/domains" : "src/domains");
+const monorepoSourceFolders = (workspaceDir: string) => [
+  { label: "Feature", path: "packages/features", absolutePath: join(workspaceDir, "packages", "features") },
+  { label: "Domains", path: "packages/domains", absolutePath: join(workspaceDir, "packages", "domains") },
+] as const;
 const registryPath = (rootDir: string) => join(rootDir, ".project", "project-list.json");
 const configPath = (rootDir: string) => join(rootDir, "configs", "config.yaml");
+const sourceFileExtensions = new Set([".cts", ".js", ".jsx", ".mts", ".ts", ".tsx"]);
 
 const readOptionalFile = async (path: string): Promise<string | null> => {
   try {
@@ -255,6 +263,134 @@ const readDomainFileSummaries = async (workspaceDir: string, projectType: Projec
   return (await walk(domainsRoot)).sort((left, right) => left.path.localeCompare(right.path));
 };
 
+const hasExportModifier = (node: ts.Node): boolean =>
+  ts.canHaveModifiers(node) && (ts.getModifiers(node) ?? []).some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+
+const classifySymbolKind = (
+  name: string,
+  fallback: UiSourceSymbolSummary["kind"],
+): UiSourceSymbolSummary["kind"] => (/schema/iu.test(name) ? "schema" : fallback);
+
+const addSymbol = (
+  symbols: UiSourceSymbolSummary[],
+  seen: Set<string>,
+  name: string,
+  kind: UiSourceSymbolSummary["kind"],
+): void => {
+  const trimmed = name.trim();
+  if (!trimmed || seen.has(`${kind}:${trimmed}`)) {
+    return;
+  }
+
+  seen.add(`${kind}:${trimmed}`);
+  symbols.push({ name: trimmed, kind });
+};
+
+const extractExportedSymbols = (sourceText: string, filePath: string): UiSourceSymbolSummary[] => {
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX);
+  const symbols: UiSourceSymbolSummary[] = [];
+  const seen = new Set<string>();
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && hasExportModifier(statement) && statement.name) {
+      addSymbol(symbols, seen, statement.name.text, classifySymbolKind(statement.name.text, "function"));
+      continue;
+    }
+
+    if (ts.isClassDeclaration(statement) && hasExportModifier(statement) && statement.name) {
+      addSymbol(symbols, seen, statement.name.text, classifySymbolKind(statement.name.text, "class"));
+      continue;
+    }
+
+    if (ts.isInterfaceDeclaration(statement) && hasExportModifier(statement)) {
+      addSymbol(symbols, seen, statement.name.text, classifySymbolKind(statement.name.text, "interface"));
+      continue;
+    }
+
+    if (ts.isTypeAliasDeclaration(statement) && hasExportModifier(statement)) {
+      addSymbol(symbols, seen, statement.name.text, classifySymbolKind(statement.name.text, "type"));
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement) && hasExportModifier(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          addSymbol(symbols, seen, declaration.name.text, classifySymbolKind(declaration.name.text, "const"));
+        }
+      }
+      continue;
+    }
+
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      for (const element of statement.exportClause.elements) {
+        addSymbol(symbols, seen, element.name.text, classifySymbolKind(element.name.text, "const"));
+      }
+    }
+  }
+
+  return symbols.sort((left, right) => left.name.localeCompare(right.name) || left.kind.localeCompare(right.kind));
+};
+
+const readSourceSymbols = async (dir: string): Promise<UiSourceSymbolSummary[]> => {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const summaries = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        return readSourceSymbols(entryPath);
+      }
+      if (!entry.isFile() || !sourceFileExtensions.has(extname(entry.name))) {
+        return [];
+      }
+
+      return extractExportedSymbols(await readFile(entryPath, "utf8"), entryPath);
+    }),
+  );
+
+  const symbols = summaries.flat();
+  const seen = new Set<string>();
+  return symbols.filter((symbol) => {
+    const key = `${symbol.kind}:${symbol.name}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  }).sort((left, right) => left.name.localeCompare(right.name) || left.kind.localeCompare(right.kind));
+};
+
+const readSourceFolderSummaries = async (
+  workspaceDir: string,
+  projectType: ProjectType,
+): Promise<UiSourceFolderSummary[]> => {
+  if (projectType !== "mono") {
+    return [
+      {
+        label: "Domains",
+        path: "src/domains",
+        symbols: await readSourceSymbols(join(workspaceDir, "src", "domains")),
+      },
+    ];
+  }
+
+  return Promise.all(
+    monorepoSourceFolders(workspaceDir).map(async (folder) => ({
+      label: folder.label,
+      path: folder.path,
+      symbols: await readSourceSymbols(folder.absolutePath),
+    })),
+  );
+};
+
 const loadProjectSummaryFromRegistryItem = async (item: ProjectRegistryItem): Promise<UiProjectSummary> => {
   const projectDocument = await readOptionalFile(projectMetadataPath(item.path));
   if (!projectDocument) {
@@ -454,6 +590,7 @@ export const getProjectDetail = async (
     projectDocument,
     jobDocument: await readOptionalFile(projectJobPath(detailRoot)),
     domainFiles: await readDomainFileSummaries(detailRoot, project.type),
+    sourceFolders: await readSourceFolderSummaries(detailRoot, project.type),
     drafts: await readActiveDraftSummaries(detailRoot, project.state),
   };
 };

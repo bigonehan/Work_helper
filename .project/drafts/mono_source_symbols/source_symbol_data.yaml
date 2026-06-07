@@ -1,0 +1,17 @@
+id: source_symbol_data
+input:
+  - mono project detail request
+  - packages/features source files
+  - packages/domains source files
+output:
+  - UiProjectDetail.sourceFolders contains Feature and Domains sections with exported symbol summaries
+test:
+  - add uiProjectData coverage for mono feature and domain exported symbol summaries
+  - add coverage for missing monorepo source folders
+priority: 1
+kind: i/o
+target:
+  - src/types.ts
+  - src/server/uiProjectData.ts
+  - test/uiProjectData.test.ts
+dependsOn: []

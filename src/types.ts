@@ -63,11 +63,23 @@ export interface UiDomainFileSummary {
   readonly path: string;
 }
 
+export interface UiSourceSymbolSummary {
+  readonly name: string;
+  readonly kind: "schema" | "function" | "class" | "type" | "interface" | "const";
+}
+
+export interface UiSourceFolderSummary {
+  readonly label: string;
+  readonly path: string;
+  readonly symbols: readonly UiSourceSymbolSummary[];
+}
+
 export interface UiProjectDetail {
   readonly project: UiProjectSummary;
   readonly projectDocument: string;
   readonly jobDocument: string | null;
   readonly domainFiles: readonly UiDomainFileSummary[];
+  readonly sourceFolders: readonly UiSourceFolderSummary[];
   readonly drafts: readonly UiDraftSummary[];
 }
 

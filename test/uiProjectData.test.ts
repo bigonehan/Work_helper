@@ -115,10 +115,17 @@ describe("ui project data", () => {
     expect(detail?.project.name).toBe("demo");
     expect(detail?.jobDocument).toContain("Demo Job");
     expect(detail?.domainFiles).toEqual([]);
+    expect(detail?.sourceFolders).toEqual([
+      {
+        label: "Domains",
+        path: "src/domains",
+        symbols: [],
+      },
+    ]);
     await expect(getProjectDetail("missing", workspace)).resolves.toBeNull();
   });
 
-  test("loads mono project domain file summaries from packages domains", async () => {
+  test("loads mono project feature and domain symbols from source folders", async () => {
     const root = await createWorkspace();
     const projectPath = join(root, "projects", "mono-demo");
     const created = await createProject(
@@ -130,13 +137,70 @@ describe("ui project data", () => {
       },
       root,
     );
+    await mkdir(join(projectPath, "packages", "features", "checkout"), { recursive: true });
     await mkdir(join(projectPath, "packages", "domains", "billing"), { recursive: true });
+    await writeFile(
+      join(projectPath, "packages", "features", "checkout", "checkout.ts"),
+      [
+        "export const CheckoutSchema = {};",
+        "export function startCheckout() { return null; }",
+        "const hiddenHelper = () => null;",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(projectPath, "packages", "domains", "billing", "invoice.ts"),
+      [
+        "export interface InvoiceState { id: string }",
+        "export type InvoiceEvent = { type: 'paid' };",
+        "export class InvoiceAggregate {}",
+      ].join("\n"),
+      "utf8",
+    );
     await writeFile(join(projectPath, "packages", "domains", "orders.md"), "# Orders\n", "utf8");
     await writeFile(join(projectPath, "packages", "domains", "billing", "invoice.yaml"), "name: invoice\n", "utf8");
 
     const detail = await getProjectDetail(created.id, root);
 
+    expect(detail?.sourceFolders).toEqual([
+      {
+        label: "Feature",
+        path: "packages/features",
+        symbols: [
+          {
+            name: "CheckoutSchema",
+            kind: "schema",
+          },
+          {
+            name: "startCheckout",
+            kind: "function",
+          },
+        ],
+      },
+      {
+        label: "Domains",
+        path: "packages/domains",
+        symbols: [
+          {
+            name: "InvoiceAggregate",
+            kind: "class",
+          },
+          {
+            name: "InvoiceEvent",
+            kind: "type",
+          },
+          {
+            name: "InvoiceState",
+            kind: "interface",
+          },
+        ],
+      },
+    ]);
     expect(detail?.domainFiles).toEqual([
+      {
+        name: "invoice.ts",
+        path: join("packages", "domains", "billing", "invoice.ts"),
+      },
       {
         name: "invoice.yaml",
         path: join("packages", "domains", "billing", "invoice.yaml"),
@@ -166,6 +230,18 @@ describe("ui project data", () => {
 
     const detail = await getProjectDetail(created.id, root);
 
+    expect(detail?.sourceFolders).toEqual([
+      {
+        label: "Domains",
+        path: "src/domains",
+        symbols: [
+          {
+            name: "domain",
+            kind: "const",
+          },
+        ],
+      },
+    ]);
     expect(detail?.domainFiles).toEqual([
       {
         name: "invoice.ts",
@@ -193,6 +269,18 @@ describe("ui project data", () => {
     const detail = await getProjectDetail(created.id, root);
 
     expect(detail?.domainFiles).toEqual([]);
+    expect(detail?.sourceFolders).toEqual([
+      {
+        label: "Feature",
+        path: "packages/features",
+        symbols: [],
+      },
+      {
+        label: "Domains",
+        path: "packages/domains",
+        symbols: [],
+      },
+    ]);
   });
 
   test("persists project registry crud separately from project detail artifacts", async () => {

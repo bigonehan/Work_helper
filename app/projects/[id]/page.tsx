@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, FileText, FolderTree } from "lucide-react";
+import { ArrowLeft, Braces, CheckCircle2, FileText, FolderTree } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,8 @@ export default async function ProjectDetailPage({
   if (!detail) {
     notFound();
   }
-  const domainSourcePath = detail.project.type === "mono" ? "packages/domains" : "src/domains";
+  const sourceOverviewDescription =
+    detail.project.type === "mono" ? "Exported names in packages/features and packages/domains" : "Exported names in src/domains";
 
   return (
     <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
@@ -89,23 +90,44 @@ export default async function ProjectDetailPage({
             <Card className="sm:col-span-3 lg:col-span-1">
               <CardHeader>
                 <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Domains</CardTitle>
+                  <CardTitle className="text-base">Source overview</CardTitle>
                   <FolderTree className="size-4 text-[var(--muted-foreground)]" aria-hidden="true" />
                 </div>
-                <CardDescription>Files in {domainSourcePath}</CardDescription>
+                <CardDescription>{sourceOverviewDescription}</CardDescription>
               </CardHeader>
-              <CardContent>
-                {detail.domainFiles.length > 0 ? (
-                  <ul className="space-y-2 text-sm">
-                    {detail.domainFiles.map((domainFile) => (
-                      <li key={domainFile.path} className="rounded-md bg-[var(--muted)] px-3 py-2">
-                        <p className="break-words font-medium text-[var(--foreground)]">{domainFile.name}</p>
-                        <p className="mt-1 break-words text-xs text-[var(--muted-foreground)]">{domainFile.path}</p>
-                      </li>
-                    ))}
-                  </ul>
+              <CardContent className="space-y-4">
+                {detail.sourceFolders.length > 0 ? (
+                  detail.sourceFolders.map((folder) => (
+                    <div key={folder.path}>
+                      <div className="flex items-center justify-between gap-3">
+                        <h2 className="text-sm font-semibold">{folder.label}</h2>
+                        <span className="text-xs text-[var(--muted-foreground)]">{folder.symbols.length}</span>
+                      </div>
+                      {folder.symbols.length > 0 ? (
+                        <ul className="mt-2 space-y-2 text-sm">
+                          {folder.symbols.map((symbol) => (
+                            <li key={`${folder.path}-${symbol.kind}-${symbol.name}`} className="rounded-md bg-[var(--muted)] px-3 py-2">
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <p className="min-w-0 break-words font-medium text-[var(--foreground)]">{symbol.name}</p>
+                                <Badge variant="secondary" className="shrink-0">
+                                  {symbol.kind}
+                                </Badge>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 rounded-md bg-[var(--muted)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+                          No exported names found.
+                        </p>
+                      )}
+                    </div>
+                  ))
                 ) : (
-                  <p className="text-sm text-[var(--muted-foreground)]">No domain files found.</p>
+                  <div className="flex items-center gap-2 rounded-md bg-[var(--muted)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+                    <Braces className="size-4 shrink-0" aria-hidden="true" />
+                    No exported source names found.
+                  </div>
                 )}
               </CardContent>
             </Card>
