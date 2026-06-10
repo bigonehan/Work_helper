@@ -63,6 +63,9 @@ describe("project artifact services", () => {
 
     expect(projectDocument).toContain("## type");
     expect(projectDocument).toContain("code");
+    expect(projectDocument).toContain("# 3. 해결책");
+    expect(projectDocument).toContain("## 요구");
+    expect(projectDocument).toContain("## 데이터");
     expect(jobDocument).toContain("#requirements");
     expect(drafts.length).toBeGreaterThan(0);
     expect(drafts[0]?.content).toContain("id:");
@@ -70,6 +73,31 @@ describe("project artifact services", () => {
     expect(drafts[0]?.content).toContain("priority:");
     expect(drafts[0]?.content).toContain("dependsOn:");
     expect(drafts[0]?.priority).toBeGreaterThan(0);
+  });
+
+  test("default mono service renders the shared Project.md content in project metadata", async () => {
+    const context = {
+      projectId: "mono-demo",
+      projectType: "mono" as const,
+      projectSpec: "typescript" as const,
+      request: "모노레포 프로젝트",
+      jobDocument: "",
+      workspaceDir: "/tmp/mono-demo",
+      timestamp: "260418_1500",
+      summary: "모노레포",
+    };
+
+    const projectDocument = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* ProjectTag;
+        return yield* Effect.sync(() => service.renderProjectDocument(context));
+      }).pipe(Effect.provide(createProjectLayerForType("mono"))),
+    );
+
+    expect(projectDocument).toContain("## type\nmono");
+    expect(projectDocument).toContain("# 3. 해결책");
+    expect(projectDocument).toContain("## 요구");
+    expect(projectDocument).toContain("## 데이터");
   });
 
   test("project layer is also used for job reader, build, and check", async () => {

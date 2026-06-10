@@ -1,0 +1,40 @@
+# id: draft 고유값
+id: project_md_content
+
+# summary: 파일명과 묶음 관리에 사용하는 짧은 요약명
+summary: project_md_content
+
+# description: build 세션이 구현해야 하는 작업 설명
+description: code와 mono 프로젝트 메타데이터 생성 시 Project.md 본문을 포함한다
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - user request
+  - root project.md Project.md guide content
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - generated code project.md contains Project.md guide sections
+  - generated mono project.md contains Project.md guide sections
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - code service render test checks Project.md guide sections
+  - mono service render test checks Project.md guide sections
+  - server project metadata parser keeps existing metadata values
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: action
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - src/server/project.ts
+  - test/server.project.test.ts
+  - test/projectArtifactService.test.ts
+  - package.json
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

@@ -152,6 +152,9 @@ describe("server project helpers", () => {
 
     expect(document).toContain("## type\ncode");
     expect(document).toContain("## spec\ntypescript");
+    expect(document).toContain("# 3. 해결책");
+    expect(document).toContain("## 요구");
+    expect(document).toContain("## 데이터");
     expect(parsed).toEqual({
       name: "demo-project",
       type: "code",
