@@ -202,6 +202,7 @@ describe("handleManagerRequest", () => {
     const draftDocument = await readFile(join(draftDir, draftFiles[0] as string), "utf8");
     expect(jobDocument).toContain("# check");
     expect(jobDocument).toContain("[check]");
+    expect(draftBundleDocument).toContain("bun run lint:imports");
     expect(draftBundleDocument).toContain("draft_items:");
     expect(draftDocument).toContain("id:");
     expect(draftDocument).toContain("description:");

@@ -1,12 +1,13 @@
 import matter from "gray-matter";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import type { AppSettings, ProjectSpec, ProjectType } from "../types";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, join, parse, relative } from "node:path";
+import { PROJECT_TYPES, type AppSettings, type ProjectSpec, type ProjectType } from "../types";
 
 export const PROJECT_METADATA_DIR = ".project";
 export const PROJECT_CAPTURE_DIR = ".project/captures";
 const TEMPLATE_DIR = join(process.cwd(), "assets", "templates");
 export const CONFIG_PATH = join(process.cwd(), "configs", "config.yaml");
+export const PROJECT_LINK_ROOTS_CONFIG_PATH = join(process.cwd(), "configs", "project-link-roots.yaml");
 export const DEFAULT_PROJECT_PATH = ".project/workspaces";
 
 export interface JobFilePaths {
@@ -34,6 +35,32 @@ export interface DraftDocumentMetadata {
   readonly draftItems: readonly DraftDocumentItem[];
   readonly checks: DraftDocumentChecks;
 }
+
+export type ProjectLinkRootMap = Record<string, string>;
+export type ProjectLinkRootsConfig = Record<ProjectType, ProjectLinkRootMap>;
+
+export interface ResolveProjectWikiLinkInput {
+  readonly workspaceDir: string;
+  readonly projectType: ProjectType;
+  readonly section: string;
+  readonly link: string;
+  readonly configPath?: string;
+}
+
+const DEFAULT_PROJECT_LINK_ROOTS: ProjectLinkRootsConfig = {
+  code: {
+    default: ".",
+    domains: "src/domains",
+    features: "src/features",
+    rules: ".project/rules",
+  },
+  mono: {
+    default: ".",
+    domains: "packages/domains",
+    features: "packages/features",
+    rules: ".project/rules",
+  },
+};
 
 export const formatJobTimestamp = (date: Date): string => {
   const year = String(date.getUTCFullYear()).slice(-2);
@@ -122,6 +149,14 @@ export const getAgentWorkflowRules = async (agentsPath: string = join(process.cw
 
   if (!section.includes("`draft")) {
     throw new Error("AGENTS.md Workflow Rules must document the draft artifact structure.");
+  }
+
+  if (!section.includes("`Skills/`") || !section.includes("specific Skill")) {
+    throw new Error("AGENTS.md Workflow Rules must document the target workspace Skills/ lookup rule for specific Skill requests.");
+  }
+
+  if (!section.includes("`bun run lint:imports`") || !section.includes("`Skills/import-check/SKILL.md`")) {
+    throw new Error("AGENTS.md Workflow Rules must document the import lint check and import-check Skill guidance.");
   }
 
   return section;
@@ -405,6 +440,154 @@ export const setConfigValue = async (key: string, value: string, configPath: str
   config[key] = value;
   await mkdir(dirname(configPath), { recursive: true });
   await writeFile(configPath, serializeFlatConfig(config), "utf8");
+};
+
+const normalizeSectionName = (value: string): string => value.trim().replace(/^#+\s*/u, "").toLowerCase();
+
+const normalizeRelativeConfigPath = (value: string): string => value.trim().replace(/^["']|["']$/gu, "").replace(/\\/gu, "/");
+
+const cloneProjectLinkRoots = (): ProjectLinkRootsConfig => ({
+  code: { ...DEFAULT_PROJECT_LINK_ROOTS.code },
+  mono: { ...DEFAULT_PROJECT_LINK_ROOTS.mono },
+});
+
+const parseProjectLinkRootsConfig = (input: string): Partial<ProjectLinkRootsConfig> => {
+  const parsed: Partial<ProjectLinkRootsConfig> = {};
+  let currentType: ProjectType | null = null;
+
+  for (const rawLine of input.split("\n")) {
+    const uncommented = rawLine.replace(/\s+#.*$/u, "");
+    if (!uncommented.trim()) {
+      continue;
+    }
+
+    const topLevelMatch = uncommented.match(/^([A-Za-z0-9_-]+):\s*$/u);
+    if (topLevelMatch) {
+      const candidate = topLevelMatch[1];
+      currentType = PROJECT_TYPES.includes(candidate as ProjectType) ? (candidate as ProjectType) : null;
+      if (currentType && !parsed[currentType]) {
+        parsed[currentType] = {};
+      }
+      continue;
+    }
+
+    const entryMatch = uncommented.match(/^\s+([A-Za-z0-9_-]+):\s*(.*?)\s*$/u);
+    if (!entryMatch || !currentType) {
+      continue;
+    }
+
+    const key = normalizeSectionName(entryMatch[1]);
+    const value = normalizeRelativeConfigPath(entryMatch[2]);
+    if (key && value) {
+      parsed[currentType] = { ...(parsed[currentType] ?? {}), [key]: value };
+    }
+  }
+
+  return parsed;
+};
+
+export const getProjectLinkRoots = async (
+  configPath: string = PROJECT_LINK_ROOTS_CONFIG_PATH,
+): Promise<ProjectLinkRootsConfig> => {
+  const roots = cloneProjectLinkRoots();
+  let document: string;
+  try {
+    document = await readFile(configPath, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return roots;
+    }
+    throw error;
+  }
+
+  const parsed = parseProjectLinkRootsConfig(document);
+  for (const projectType of PROJECT_TYPES) {
+    roots[projectType] = {
+      ...roots[projectType],
+      ...(parsed[projectType] ?? {}),
+    };
+  }
+
+  return roots;
+};
+
+export const resolveProjectLinkRoot = async (
+  projectType: ProjectType,
+  section: string,
+  configPath: string = PROJECT_LINK_ROOTS_CONFIG_PATH,
+): Promise<string> => {
+  const roots = await getProjectLinkRoots(configPath);
+  const rootMap = roots[projectType];
+  const sectionRoot = rootMap[normalizeSectionName(section)];
+  return sectionRoot ?? rootMap.default ?? ".";
+};
+
+const isExplicitProjectPath = (link: string): boolean => /[\\/]/u.test(link);
+
+const fileExists = async (path: string): Promise<boolean> => {
+  try {
+    const result = await stat(path);
+    return result.isFile();
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+};
+
+const findWikiLinkCandidates = async (rootDir: string, link: string): Promise<string[]> => {
+  let entries;
+  try {
+    entries = await readdir(rootDir, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const candidates = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = join(rootDir, entry.name);
+      if (entry.isDirectory()) {
+        return findWikiLinkCandidates(entryPath, link);
+      }
+      if (!entry.isFile()) {
+        return [];
+      }
+      return entry.name === link || parse(entry.name).name === link ? [entryPath] : [];
+    }),
+  );
+
+  return candidates.flat();
+};
+
+export const resolveProjectWikiLink = async (input: ResolveProjectWikiLinkInput): Promise<string> => {
+  const link = input.link.trim().replace(/^\[\[/u, "").replace(/\]\]$/u, "");
+  if (!link) {
+    throw new Error("Project wiki link is required.");
+  }
+
+  if (isExplicitProjectPath(link)) {
+    const explicitPath = join(input.workspaceDir, link);
+    if (!(await fileExists(explicitPath))) {
+      throw new Error(`Project wiki link target was not found: ${link}`);
+    }
+    return relative(input.workspaceDir, explicitPath);
+  }
+
+  const root = await resolveProjectLinkRoot(input.projectType, input.section, input.configPath);
+  const rootDir = join(input.workspaceDir, root);
+  const candidates = await findWikiLinkCandidates(rootDir, link);
+  if (candidates.length === 0) {
+    throw new Error(`Project wiki link target was not found in ${root}: ${link}`);
+  }
+  if (candidates.length > 1) {
+    throw new Error(`Project wiki link target is ambiguous in ${root}: ${link}`);
+  }
+
+  return relative(input.workspaceDir, candidates[0]);
 };
 
 export const getAppSettings = async (configPath: string = CONFIG_PATH): Promise<AppSettings> => {

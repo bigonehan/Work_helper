@@ -13,3 +13,5 @@
 - `build`: implement code based on the generated `draft_item` yaml files.
 - `check`: perform the final verification using the checklist recorded in the draft markdown bundle.
 - When changing this codebase, preserve this workflow and verify that new logic does not bypass or reorder these stages without an explicit reason.
+- When an instruction says to use a specific Skill, first inspect the target workspace `Skills/` directory. If a matching Skill document or directory exists there, read and follow that local Skill before falling back to built-in, global, or externally installed Skills.
+- For code changes, the `check` stage must include `bun run lint:imports`. If import lint fails or needs configuration work, first read `Skills/import-check/SKILL.md`.

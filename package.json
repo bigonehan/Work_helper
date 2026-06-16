@@ -1,12 +1,14 @@
 {
   "name": "work_helper",
-  "version": "0.1.30",
+  "version": "0.1.33",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "lint:imports": "eslint . --max-warnings=0",
+    "check": "bun test && bunx tsc --noEmit && bun run lint:imports",
     "check:mobile": "bun run scripts/check-mobile.ts",
     "check:e2e": "bun run scripts/check-e2e.ts",
     "test": "bun test",
@@ -35,6 +37,11 @@
     "@types/bun": "^1.3.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.9.3"
+    "eslint": "^9",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import": "^2.32.0",
+    "globals": "^17.6.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.61.0"
   }
 }

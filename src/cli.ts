@@ -225,7 +225,7 @@ function buildCheckPrompt(artifacts: AttemptArtifacts, policies: CliPromptPolici
 
 function buildDraftChecks(drafts: readonly ManagerDraftArtifact[]): DraftDocumentChecks {
   return {
-    automated: ["bun test", "bunx tsc --noEmit"],
+    automated: ["bun test", "bunx tsc --noEmit", "bun run lint:imports"],
     assertions: drafts.map((draft) => `${draft.draftId}: ${draft.description}`),
   };
 }

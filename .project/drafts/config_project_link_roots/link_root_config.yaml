@@ -1,0 +1,13 @@
+id: link_root_config
+title: Config-backed project.md link roots
+priority: 1
+status: ready
+description: >
+  Add configs/project-link-roots.yaml with code and mono folder roots, expose helpers
+  for resolving project.md section wiki links, and make project detail domain/source
+  discovery consume the same configuration.
+dependsOn: []
+checks:
+  - bun test
+  - bunx tsc --noEmit
+  - bun run lint:imports

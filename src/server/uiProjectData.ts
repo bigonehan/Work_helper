@@ -1,33 +1,35 @@
 import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { extname, isAbsolute, join, parse, relative, resolve } from "node:path";
 import ts from "typescript";
-import { createProjectMetadataDocument, getAppSettings, parseDraftDocument, parseProjectMetadataDocument } from "./project";
-import { PROJECT_REGISTRY_STATES, PROJECT_TYPES } from "../types";
-import type {
-  ProjectMutationInput,
-  ProjectRegistryDocument,
-  ProjectRegistryItem,
-  ProjectRegistryState,
-  ProjectType,
-  UiDomainFileSummary,
-  UiDraftSummary,
-  UiProjectDetail,
-  UiProjectSummary,
-  UiSourceFolderSummary,
-  UiSourceSymbolSummary,
+import {
+  createProjectMetadataDocument,
+  getAppSettings,
+  getProjectLinkRoots,
+  parseDraftDocument,
+  parseProjectMetadataDocument,
+} from "./project";
+import {
+  PROJECT_REGISTRY_STATES,
+  PROJECT_TYPES,
+  type ProjectMutationInput,
+  type ProjectRegistryDocument,
+  type ProjectRegistryItem,
+  type ProjectRegistryState,
+  type ProjectType,
+  type UiDomainFileSummary,
+  type UiDraftSummary,
+  type UiProjectDetail,
+  type UiProjectSummary,
+  type UiSourceFolderSummary,
+  type UiSourceSymbolSummary,
 } from "../types";
 
 const projectMetadataPath = (workspaceDir: string) => join(workspaceDir, ".project", "project.md");
 const projectJobPath = (workspaceDir: string) => join(workspaceDir, ".project", "job.md");
 const projectDraftsPath = (workspaceDir: string) => join(workspaceDir, ".project", "drafts");
-const projectDomainsPath = (workspaceDir: string, projectType: ProjectType) =>
-  join(workspaceDir, projectType === "mono" ? "packages/domains" : "src/domains");
-const monorepoSourceFolders = (workspaceDir: string) => [
-  { label: "Feature", path: "packages/features", absolutePath: join(workspaceDir, "packages", "features") },
-  { label: "Domains", path: "packages/domains", absolutePath: join(workspaceDir, "packages", "domains") },
-] as const;
 const registryPath = (rootDir: string) => join(rootDir, ".project", "project-list.json");
 const configPath = (rootDir: string) => join(rootDir, "configs", "config.yaml");
+const linkRootsConfigPath = (rootDir: string) => join(rootDir, "configs", "project-link-roots.yaml");
 const sourceFileExtensions = new Set([".cts", ".js", ".jsx", ".mts", ".ts", ".tsx"]);
 
 const readOptionalFile = async (path: string): Promise<string | null> => {
@@ -224,8 +226,14 @@ const readActiveDraftSummaries = async (
   projectState: ProjectRegistryState,
 ): Promise<UiDraftSummary[]> => (projectState === "complete" ? [] : readDraftSummaries(workspaceDir));
 
-const readDomainFileSummaries = async (workspaceDir: string, projectType: ProjectType): Promise<UiDomainFileSummary[]> => {
-  const domainsRoot = projectDomainsPath(workspaceDir, projectType);
+const readDomainFileSummaries = async (
+  workspaceDir: string,
+  projectType: ProjectType,
+  rootDir: string,
+): Promise<UiDomainFileSummary[]> => {
+  const linkRoots = await getProjectLinkRoots(linkRootsConfigPath(rootDir));
+  const domainsPath = linkRoots[projectType].domains ?? linkRoots[projectType].default ?? ".";
+  const domainsRoot = join(workspaceDir, domainsPath);
 
   const walk = async (dir: string): Promise<UiDomainFileSummary[]> => {
     let entries;
@@ -371,22 +379,30 @@ const readSourceSymbols = async (dir: string): Promise<UiSourceSymbolSummary[]> 
 const readSourceFolderSummaries = async (
   workspaceDir: string,
   projectType: ProjectType,
+  rootDir: string,
 ): Promise<UiSourceFolderSummary[]> => {
+  const linkRoots = await getProjectLinkRoots(linkRootsConfigPath(rootDir));
+  const roots = linkRoots[projectType];
+  const domainsPath = roots.domains ?? roots.default ?? ".";
   if (projectType !== "mono") {
     return [
       {
         label: "Domains",
-        path: "src/domains",
-        symbols: await readSourceSymbols(join(workspaceDir, "src", "domains")),
+        path: domainsPath,
+        symbols: await readSourceSymbols(join(workspaceDir, domainsPath)),
       },
     ];
   }
 
+  const featuresPath = roots.features ?? roots.default ?? ".";
   return Promise.all(
-    monorepoSourceFolders(workspaceDir).map(async (folder) => ({
+    [
+      { label: "Feature", path: featuresPath },
+      { label: "Domains", path: domainsPath },
+    ].map(async (folder) => ({
       label: folder.label,
       path: folder.path,
-      symbols: await readSourceSymbols(folder.absolutePath),
+      symbols: await readSourceSymbols(join(workspaceDir, folder.path)),
     })),
   );
 };
@@ -589,8 +605,8 @@ export const getProjectDetail = async (
     project,
     projectDocument,
     jobDocument: await readOptionalFile(projectJobPath(detailRoot)),
-    domainFiles: await readDomainFileSummaries(detailRoot, project.type),
-    sourceFolders: await readSourceFolderSummaries(detailRoot, project.type),
+    domainFiles: await readDomainFileSummaries(detailRoot, project.type, rootDir),
+    sourceFolders: await readSourceFolderSummaries(detailRoot, project.type, rootDir),
     drafts: await readActiveDraftSummaries(detailRoot, project.state),
   };
 };

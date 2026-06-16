@@ -1,7 +1,6 @@
-import { handleManagerRequest } from "../manager";
-import { createReactTodoAppVerifier } from "../manager";
 import { lstat, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { createReactTodoAppVerifier, handleManagerRequest } from "../manager";
 import type { ManagerResult, ProjectJobSnapshot, ProjectType, Provider } from "../types";
 import { listProjectRegistry } from "./uiProjectData";
 

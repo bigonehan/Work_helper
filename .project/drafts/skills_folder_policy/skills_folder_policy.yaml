@@ -1,0 +1,41 @@
+# id: draft 고유값
+id: skills_folder_policy
+
+# summary: 파일명과 묶음 관리에 사용하는 짧은 요약명
+summary: skills_folder_policy
+
+# description: build 세션이 구현해야 하는 작업 설명
+description: Workflow Rules와 검증 로직에 내부 Skills 폴더 우선 참조 규칙을 추가한다
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - user request
+  - AGENTS.md workflow rules
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - agents are instructed to check target workspace Skills/ before using a specifically requested Skill
+  - workflow rules validation fails when the Skills lookup rule is missing
+  - root Skills directory has a committed guide document
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - server project helper test checks the Skills lookup rule is included
+  - server project helper test checks the Skills lookup rule is required
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: action
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - AGENTS.md
+  - Skills/README.md
+  - src/server/project.ts
+  - test/server.project.test.ts
+  - package.json
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

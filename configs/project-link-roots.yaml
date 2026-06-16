@@ -1,0 +1,10 @@
+code:
+  default: .
+  domains: src/domains
+  features: src/features
+  rules: .project/rules
+mono:
+  default: .
+  domains: packages/domains
+  features: packages/features
+  rules: .project/rules

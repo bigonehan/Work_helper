@@ -1,8 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { handleRequest } from "./cli";
+import { createDefaultCliJobRunner, handleRequest } from "./cli";
 import { resolveExecutionPaths } from "./executionPaths";
-import { createDefaultCliJobRunner } from "./cli";
 import type {
   CliJobRunner,
   ManagerAttemptRecord,

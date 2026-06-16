@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtemp } from "node:fs/promises";
 import {
   createProject,
   deleteProject,
@@ -250,6 +249,49 @@ describe("ui project data", () => {
       {
         name: "orders.ts",
         path: join("src", "domains", "orders.ts"),
+      },
+    ]);
+  });
+
+  test("loads code project domain file summaries from configured type roots", async () => {
+    const root = await createWorkspace();
+    const projectPath = join(root, "projects", "configured-code-demo");
+    await mkdir(join(root, "configs"), { recursive: true });
+    await writeFile(
+      join(root, "configs", "project-link-roots.yaml"),
+      ["code:", "  domains: app/domain-files", "  features: app/feature-files"].join("\n"),
+      "utf8",
+    );
+    const created = await createProject(
+      {
+        name: "Configured Code Demo",
+        type: "code",
+        state: "work",
+        path: projectPath,
+      },
+      root,
+    );
+    await mkdir(join(projectPath, "app", "domain-files", "billing"), { recursive: true });
+    await writeFile(join(projectPath, "app", "domain-files", "billing", "invoice.ts"), "export const invoice = true;\n", "utf8");
+
+    const detail = await getProjectDetail(created.id, root);
+
+    expect(detail?.sourceFolders).toEqual([
+      {
+        label: "Domains",
+        path: "app/domain-files",
+        symbols: [
+          {
+            name: "invoice",
+            kind: "const",
+          },
+        ],
+      },
+    ]);
+    expect(detail?.domainFiles).toEqual([
+      {
+        name: "invoice.ts",
+        path: join("app", "domain-files", "billing", "invoice.ts"),
       },
     ]);
   });

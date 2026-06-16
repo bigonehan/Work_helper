@@ -1,0 +1,46 @@
+# id: draft 고유값
+id: import_check_gate
+
+# summary: 파일명과 묶음 관리에 사용하는 짧은 요약명
+summary: import_check_gate
+
+# description: build 세션이 구현해야 하는 작업 설명
+description: ESLint import 검사 설정과 workflow check 기본 검사를 추가한다
+
+# input: 입력되는 값들, 요구되는 값들
+input:
+  - user request
+  - current work_helper workflow rules
+  - current TypeScript project configuration
+
+# output: 현재 기능이 내놓는 결과, 혹은 출력하는 값
+output:
+  - code-change check stage requires bun run lint:imports
+  - eslint-plugin-import validates import resolution, duplicates, cycles, and order
+  - local import-check skill documents troubleshooting guidance
+
+# test: 구현 성공 여부를 체크하는 조건 체크리스트
+test:
+  - bun run lint:imports succeeds
+  - cli tests verify default automated checks include bun run lint:imports
+  - server project helper tests verify workflow rules mention bun run lint:imports
+
+# priority: manager가 우선순위를 판별하는 int 값, 작을수록 먼저 실행
+priority: 1
+
+# kind: calc, ui, i/o, action 중 하나
+kind: action
+
+# target: 사용되는 파일, 생성되는 파일, 이용하는 도메인
+target:
+  - AGENTS.md
+  - eslint.config.mjs
+  - package.json
+  - bun.lock
+  - src/cli.ts
+  - test/cli.test.ts
+  - test/server.project.test.ts
+  - Skills/import-check/SKILL.md
+
+# dependsOn: 다른 작업 의존성이 있을 때 참조하는 draft id 목록
+dependsOn: []

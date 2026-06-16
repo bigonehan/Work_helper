@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,11 +16,14 @@ import {
   getAgentWorkflowRules,
   getConfig,
   getConfigValue,
+  getProjectLinkRoots,
   inferProjectSpec,
   loadTemplateAsset,
   parseDraftDocument,
   parseProjectMetadataDocument,
   readConfigValue,
+  resolveProjectLinkRoot,
+  resolveProjectWikiLink,
   setConfigValue,
   toLimitedSnakeCase,
   toSnakeCaseSummary,
@@ -96,6 +99,53 @@ describe("server project helpers", () => {
     expect(workflowRules).toContain("`request -> init -> plan -> analyze -> build -> check`");
     expect(workflowRules).toContain("`job.md`");
     expect(workflowRules).toContain("`./.project/drafts/{summary}/{summary}.md`");
+    expect(workflowRules).toContain("`Skills/`");
+    expect(workflowRules).toContain("specific Skill");
+    expect(workflowRules).toContain("`bun run lint:imports`");
+    expect(workflowRules).toContain("`Skills/import-check/SKILL.md`");
+  });
+
+  test("requires workflow rules to document local Skills lookup", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "work-helper-agents-"));
+    const agentsPath = join(tempDir, "AGENTS.md");
+    await writeFile(
+      agentsPath,
+      [
+        "# Repository Rules",
+        "",
+        "## Workflow Rules",
+        "",
+        "- All project work must follow this stage order: `request -> init -> plan -> analyze -> build -> check`.",
+        "- `init`: create `project.md`.",
+        "- `plan`: create `job.md`.",
+        "- `analyze`: create `./.project/drafts/{summary}/{summary}.md` and related `draft_item` yaml files.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await expect(getAgentWorkflowRules(agentsPath)).rejects.toThrow("Skills/ lookup rule");
+  });
+
+  test("requires workflow rules to document import lint checks", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "work-helper-agents-"));
+    const agentsPath = join(tempDir, "AGENTS.md");
+    await writeFile(
+      agentsPath,
+      [
+        "# Repository Rules",
+        "",
+        "## Workflow Rules",
+        "",
+        "- All project work must follow this stage order: `request -> init -> plan -> analyze -> build -> check`.",
+        "- `init`: create `project.md`.",
+        "- `plan`: create `job.md`.",
+        "- `analyze`: create `./.project/drafts/{summary}/{summary}.md` and related `draft_item` yaml files.",
+        "- When an instruction says to use a specific Skill, first inspect the target workspace `Skills/` directory for the specific Skill.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await expect(getAgentWorkflowRules(agentsPath)).rejects.toThrow("import lint check");
   });
 
   test("creates and parses draft bundle markdown metadata", async () => {
@@ -137,6 +187,51 @@ describe("server project helpers", () => {
     const updatedContents = await readFile(configPath, "utf8");
     expect(updatedContents).toContain("defaultProjectPath: /tmp/work-helper-projects");
     await expect(readConfigValue("defaultProjectPath", configPath)).resolves.toBe("/tmp/work-helper-projects");
+  });
+
+  test("loads project link roots from type-specific config", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "work-helper-link-roots-"));
+    const linkRootsPath = join(tempDir, "project-link-roots.yaml");
+    await writeFile(
+      linkRootsPath,
+      [
+        "code:",
+        "  default: docs",
+        "  domains: custom/code/domains",
+        "mono:",
+        "  default: packages",
+        "  features: custom/mono/features",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const roots = await getProjectLinkRoots(linkRootsPath);
+
+    expect(roots.code.default).toBe("docs");
+    expect(roots.code.domains).toBe("custom/code/domains");
+    expect(roots.code.features).toBe("src/features");
+    expect(roots.mono.default).toBe("packages");
+    expect(roots.mono.domains).toBe("packages/domains");
+    expect(roots.mono.features).toBe("custom/mono/features");
+  });
+
+  test("resolves project wiki links through the current section root", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "work-helper-wiki-link-"));
+    const linkRootsPath = join(tempDir, "project-link-roots.yaml");
+    await writeFile(linkRootsPath, "code:\n  domains: src/domain-model\n", "utf8");
+    await mkdir(join(tempDir, "src", "domain-model", "billing"), { recursive: true });
+    await writeFile(join(tempDir, "src", "domain-model", "billing", "invoice.ts"), "export const invoice = true;\n", "utf8");
+
+    await expect(resolveProjectLinkRoot("code", "domains", linkRootsPath)).resolves.toBe("src/domain-model");
+    await expect(
+      resolveProjectWikiLink({
+        workspaceDir: tempDir,
+        projectType: "code",
+        section: "domains",
+        link: "invoice",
+        configPath: linkRootsPath,
+      }),
+    ).resolves.toBe(join("src", "domain-model", "billing", "invoice.ts"));
   });
 
   test("creates and parses project metadata documents with single-value spec", () => {
