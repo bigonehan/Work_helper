@@ -1,0 +1,18 @@
+id: planning_tab_ui
+file: app/projects/[id]/page.tsx
+description: Render detail content through tabs with a dedicated planning tab.
+input:
+  - UiProjectDetail.jobDocument
+  - UiProjectDetail.planningDocument
+output:
+  - Detail page tab menu
+test:
+  - bunx tsc --noEmit
+  - bun run lint:imports
+priority: 2
+kind: ui
+target:
+  - app/projects/[id]/page.tsx
+  - components/project-detail-tabs.tsx
+dependsOn:
+  - planning_data

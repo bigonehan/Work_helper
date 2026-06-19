@@ -1,0 +1,15 @@
+id: planning_data
+file: src/server/uiProjectData.ts
+description: Expose the planning section from project.md on project detail data.
+input:
+  - .project/project.md
+output:
+  - UiProjectDetail.planningDocument
+test:
+  - bun test test/uiProjectData.test.ts
+priority: 1
+kind: i/o
+target:
+  - src/server/uiProjectData.ts
+  - src/types.ts
+dependsOn: []

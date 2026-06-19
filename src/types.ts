@@ -77,6 +77,7 @@ export interface UiSourceFolderSummary {
 export interface UiProjectDetail {
   readonly project: UiProjectSummary;
   readonly projectDocument: string;
+  readonly planningDocument: string | null;
   readonly jobDocument: string | null;
   readonly domainFiles: readonly UiDomainFileSummary[];
   readonly sourceFolders: readonly UiSourceFolderSummary[];

@@ -1,15 +1,15 @@
 # requirement
-## Config-backed project.md link roots
-- Add a configs folder file that defines folder roots by project type.
-- Use project.md type and current section to resolve [[file]] references.
-- Use the same configured roots for project detail domain/source discovery.
+## Project planning tab
+- Detail page must expose a tab menu.
+- One tab must be `기획`.
+- The `기획` tab must show the planning section from `project.md`.
 
 # plan
-- Add tests for config parsing and wiki link resolution.
-- Add tests for project detail loading with custom configured domain roots.
-- Implement config-backed helpers and integrate them into project detail data loading.
+- Add a detail-data test for extracting the planning section from `project.md`.
+- Add a `planningDocument` field to project detail data.
+- Replace the single Job content panel with a tabbed detail content component.
 
 # check
-- bun test
+- bun test test/uiProjectData.test.ts
 - bunx tsc --noEmit
 - bun run lint:imports

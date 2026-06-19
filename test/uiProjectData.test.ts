@@ -105,7 +105,26 @@ describe("ui project data", () => {
     await mkdir(join(workspace, ".project"), { recursive: true });
     await writeFile(
       join(workspace, ".project", "project.md"),
-      "# info\n## name\ndemo\n## type\ncode\n## description\nDemo\n## spec\ntypescript\n## path\n/tmp/demo\n## state\ncheck\n",
+      [
+        "# info",
+        "## name",
+        "demo",
+        "## type",
+        "code",
+        "## description",
+        "Demo",
+        "## spec",
+        "typescript",
+        "## path",
+        "/tmp/demo",
+        "## state",
+        "check",
+        "# 3. 해결책",
+        "## 요구",
+        "- 사용자 요구",
+        "## 데이터",
+        "- 참고 데이터",
+      ].join("\n"),
       "utf8",
     );
     await writeFile(join(workspace, ".project", "job.md"), "# requirement\n## Demo Job\n", "utf8");
@@ -113,6 +132,7 @@ describe("ui project data", () => {
     const detail = await getProjectDetail("demo", workspace);
     expect(detail?.project.name).toBe("demo");
     expect(detail?.jobDocument).toContain("Demo Job");
+    expect(detail?.planningDocument).toBe("# 3. 해결책\n## 요구\n- 사용자 요구\n## 데이터\n- 참고 데이터");
     expect(detail?.domainFiles).toEqual([]);
     expect(detail?.sourceFolders).toEqual([
       {

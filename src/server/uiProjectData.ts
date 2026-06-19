@@ -31,6 +31,7 @@ const registryPath = (rootDir: string) => join(rootDir, ".project", "project-lis
 const configPath = (rootDir: string) => join(rootDir, "configs", "config.yaml");
 const linkRootsConfigPath = (rootDir: string) => join(rootDir, "configs", "project-link-roots.yaml");
 const sourceFileExtensions = new Set([".cts", ".js", ".jsx", ".mts", ".ts", ".tsx"]);
+const planningHeadingPattern = /^(?:기획|3\.\s*해결책|해결책)$/u;
 
 const readOptionalFile = async (path: string): Promise<string | null> => {
   try {
@@ -53,6 +54,21 @@ const pathExists = async (path: string): Promise<boolean> => {
     }
     throw error;
   }
+};
+
+const extractPlanningDocument = (document: string): string | null => {
+  const lines = document.split("\n");
+  const startIndex = lines.findIndex((line) => {
+    const headingMatch = line.trim().match(/^#{1,6}\s+(.+?)\s*$/u);
+    return headingMatch ? planningHeadingPattern.test(headingMatch[1].trim()) : false;
+  });
+
+  if (startIndex === -1) {
+    return null;
+  }
+
+  const planningDocument = lines.slice(startIndex).join("\n").trim();
+  return planningDocument || null;
 };
 
 const toProjectId = (name: string): string =>
@@ -604,6 +620,7 @@ export const getProjectDetail = async (
   return {
     project,
     projectDocument,
+    planningDocument: extractPlanningDocument(projectDocument),
     jobDocument: await readOptionalFile(projectJobPath(detailRoot)),
     domainFiles: await readDomainFileSummaries(detailRoot, project.type, rootDir),
     sourceFolders: await readSourceFolderSummaries(detailRoot, project.type, rootDir),

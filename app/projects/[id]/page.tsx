@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import { RequestRunner } from "@/components/request-runner";
 import { getProjectDetail, listProjects } from "@/src/server/uiProjectData";
 
@@ -52,21 +53,7 @@ export default async function ProjectDetailPage({
         <RequestRunner projectId={id} initialJobDocument={detail.jobDocument} />
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Job</CardTitle>
-              <CardDescription>Current workflow requirement and checklists</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {detail.jobDocument ? (
-                <pre className="max-h-[28rem] rounded-md bg-[var(--muted)] p-4 text-sm leading-6">
-                  {detail.jobDocument}
-                </pre>
-              ) : (
-                <p className="text-sm text-[var(--muted-foreground)]">No job document found.</p>
-              )}
-            </CardContent>
-          </Card>
+          <ProjectDetailTabs jobDocument={detail.jobDocument} planningDocument={detail.planningDocument} />
 
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
             <Card>
