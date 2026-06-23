@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { badRequest } from "@/src/server/http";
 import { getAppSettings, updateAppSettings } from "@/src/server/project";
 
 export async function GET() {
@@ -11,6 +12,6 @@ export async function PATCH(request: Request) {
     const settings = await updateAppSettings({ defaultProjectPath: body.defaultProjectPath });
     return NextResponse.json({ settings });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    return badRequest(error);
   }
 }

@@ -1,0 +1,23 @@
+id: shared_helpers
+input:
+  - duplicate sanitize helpers
+  - repeated ENOENT checks
+  - repeated NextResponse error responses
+output:
+  - common helper modules with unchanged behavior
+test:
+  - text id helper behavior is covered before implementation
+  - filesystem helper behavior is covered before implementation
+  - existing project and UI data tests keep passing
+priority: 1
+kind: calc
+target:
+  - src/textIds.ts
+  - src/fsUtils.ts
+  - src/server/http.ts
+  - src/projectManager.ts
+  - src/cli.ts
+  - src/server/project.ts
+  - src/server/uiProjectData.ts
+  - app/api/**/*.ts
+dependsOn: []

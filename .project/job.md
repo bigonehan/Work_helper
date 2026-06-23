@@ -1,15 +1,17 @@
 # requirement
-## Project planning tab
-- Detail page must expose a tab menu.
-- One tab must be `기획`.
-- The `기획` tab must show the planning section from `project.md`.
+## Source cleanup
+- Remove unnecessary duplicate helper logic and repeated conditions from the current source.
+- Keep behavior unchanged.
 
 # plan
-- Add a detail-data test for extracting the planning section from `project.md`.
-- Add a `planningDocument` field to project detail data.
-- Replace the single Job content panel with a tabbed detail content component.
+- Add focused utility tests first.
+- Extract shared id, filesystem, and API response helpers.
+- Replace duplicate call sites with the shared helpers.
+- Bump the patch version.
 
 # check
-- bun test test/uiProjectData.test.ts
+- bun test test/textIds.test.ts test/fsUtils.test.ts
+- bun test test/server.project.test.ts test/uiProjectData.test.ts test/debugLogging.test.ts
+- bun test
 - bunx tsc --noEmit
 - bun run lint:imports

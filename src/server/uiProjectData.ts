@@ -1,6 +1,7 @@
 import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { extname, isAbsolute, join, parse, relative, resolve } from "node:path";
 import ts from "typescript";
+import { isNotFoundError, pathExists, readOptionalTextFile } from "../fsUtils";
 import {
   createProjectMetadataDocument,
   getAppSettings,
@@ -33,28 +34,7 @@ const linkRootsConfigPath = (rootDir: string) => join(rootDir, "configs", "proje
 const sourceFileExtensions = new Set([".cts", ".js", ".jsx", ".mts", ".ts", ".tsx"]);
 const planningHeadingPattern = /^(?:기획|3\.\s*해결책|해결책)$/u;
 
-const readOptionalFile = async (path: string): Promise<string | null> => {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-};
-
-const pathExists = async (path: string): Promise<boolean> => {
-  try {
-    await stat(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return false;
-    }
-    throw error;
-  }
-};
+const readOptionalFile = readOptionalTextFile;
 
 const extractPlanningDocument = (document: string): string | null => {
   const lines = document.split("\n");
@@ -209,7 +189,7 @@ const readDraftSummaries = async (workspaceDir: string): Promise<UiDraftSummary[
   try {
     entries = await readdir(projectDraftsPath(workspaceDir));
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       return [];
     }
     throw error;
@@ -256,7 +236,7 @@ const readDomainFileSummaries = async (
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      if (isNotFoundError(error)) {
         return [];
       }
       throw error;
@@ -360,7 +340,7 @@ const readSourceSymbols = async (dir: string): Promise<UiSourceSymbolSummary[]> 
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       return [];
     }
     throw error;
@@ -527,7 +507,7 @@ const assertSafeProjectDeleteTarget = async (item: ProjectRegistryItem, rootDir:
   try {
     targetStat = await stat(targetPath);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       throw new Error("Project folder was not found.");
     }
     throw error;

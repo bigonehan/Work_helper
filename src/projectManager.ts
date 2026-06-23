@@ -5,6 +5,7 @@ import { logTmuxPromptCompletion, logTmuxPromptDispatch } from "./debugLogging";
 import { resolveExecutionPaths } from "./executionPaths";
 import { resolvePrompt } from "./prompts";
 import { buildProviderCommand } from "./providers";
+import { toKebabId } from "./textIds";
 import {
   captureTargetPane,
   createDetachedSession,
@@ -123,13 +124,9 @@ interface JobRecord {
 const sessions = new Map<string, ProjectSessionRecord>();
 const jobs = new Map<string, JobRecord>();
 
-const makeSessionName = (projectId: string) => `project-${sanitize(projectId)}`;
-const makeWindowName = (jobId: string) => `job-${sanitize(jobId)}-${Date.now().toString(36)}`;
+const makeSessionName = (projectId: string) => `project-${toKebabId(projectId)}`;
+const makeWindowName = (jobId: string) => `job-${toKebabId(jobId)}-${Date.now().toString(36)}`;
 const makeJobKey = (projectId: string, jobId: string) => `${projectId}::${jobId}`;
-
-function sanitize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "default";
-}
 
 function jobStatusFromStage(stage: RunPromptStage): ProjectJobStatus {
   switch (stage) {
@@ -207,7 +204,7 @@ function createBaseRecord(options: ResolvedJobOptions, prompt: string, marker: s
     targetDir: options.targetDir,
     executionBackend: "tmux",
     sessionName: makeSessionName(options.projectId),
-    windowName: `job-${sanitize(options.jobId)}`,
+    windowName: `job-${toKebabId(options.jobId)}`,
     windowTarget: "",
     marker,
     status: "queued",
@@ -269,7 +266,7 @@ export const submitProjectJobToTmux = (input: ProjectTmuxJobOptions) =>
       throw new Error(`Job already exists: ${jobKey}`);
     }
 
-    const marker = `__WORK_HELPER_EXIT__${sanitize(options.projectId)}_${sanitize(options.jobId)}_${Date.now().toString(36)}`;
+    const marker = `__WORK_HELPER_EXIT__${toKebabId(options.projectId)}_${toKebabId(options.jobId)}_${Date.now().toString(36)}`;
     const prompt = await resolvePrompt(options.prompt, options.promptFilePath);
     const providerCommand = buildProviderCommand(options.provider, prompt, options.targetDir, marker);
 
@@ -319,9 +316,9 @@ export const submitProjectJobToTmux = (input: ProjectTmuxJobOptions) =>
       const record: JobRecord = {
         ...createBaseRecord(options, prompt, marker),
         executionBackend: "direct",
-        sessionName: `direct-${sanitize(options.projectId)}`,
-        windowName: `direct-${sanitize(options.jobId)}`,
-        windowTarget: `direct:${sanitize(options.projectId)}:${sanitize(options.jobId)}`,
+        sessionName: `direct-${toKebabId(options.projectId)}`,
+        windowName: `direct-${toKebabId(options.jobId)}`,
+        windowTarget: `direct:${toKebabId(options.projectId)}:${toKebabId(options.jobId)}`,
         currentAction: "running direct provider fallback",
         lastObservation: "tmux unavailable; running direct provider fallback.",
         directExitCode: proc.exited,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { badRequest } from "@/src/server/http";
 import { createProject, listProjects } from "@/src/server/uiProjectData";
 
 export async function GET() {
@@ -16,6 +17,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    return badRequest(error);
   }
 }

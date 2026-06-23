@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { badRequest } from "@/src/server/http";
 import { startProjectRun } from "@/src/server/projectRuns";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -12,6 +13,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
     return NextResponse.json({ run }, { status: 202 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    return badRequest(error);
   }
 }

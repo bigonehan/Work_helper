@@ -1,6 +1,7 @@
 import matter from "gray-matter";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative } from "node:path";
+import { isNotFoundError } from "../fsUtils";
 import { PROJECT_TYPES, type AppSettings, type ProjectSpec, type ProjectType } from "../types";
 
 export const PROJECT_METADATA_DIR = ".project";
@@ -421,7 +422,7 @@ export const getConfig = async (configPath: string = CONFIG_PATH): Promise<Recor
   try {
     return { ...defaultConfig(), ...parseFlatConfig(await readFile(configPath, "utf8")) };
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       return defaultConfig();
     }
     throw error;
@@ -494,7 +495,7 @@ export const getProjectLinkRoots = async (
   try {
     document = await readFile(configPath, "utf8");
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       return roots;
     }
     throw error;
@@ -529,7 +530,7 @@ const fileExists = async (path: string): Promise<boolean> => {
     const result = await stat(path);
     return result.isFile();
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       return false;
     }
     throw error;
@@ -541,7 +542,7 @@ const findWikiLinkCandidates = async (rootDir: string, link: string): Promise<st
   try {
     entries = await readdir(rootDir, { withFileTypes: true });
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isNotFoundError(error)) {
       return [];
     }
     throw error;

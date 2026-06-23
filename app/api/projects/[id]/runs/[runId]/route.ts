@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Effect } from "effect";
+import { notFound } from "@/src/server/http";
 import { getProjectRun } from "@/src/server/projectRuns";
 import { listProjectJobs } from "@/src/projectManager";
 import { getProjectDetail } from "@/src/server/uiProjectData";
@@ -8,7 +9,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id, runId } = await params;
   const run = getProjectRun(runId);
   if (!run || run.projectId !== id) {
-    return NextResponse.json({ error: "Run not found." }, { status: 404 });
+    return notFound("Run not found.");
   }
 
   const detail = await getProjectDetail(id);

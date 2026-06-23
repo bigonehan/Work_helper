@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   detectWorkspaceState,
@@ -9,6 +9,8 @@ import {
 } from "./executionPaths";
 import { runRequestStage } from "./main";
 import { analyzeManagerJobSnapshot } from "./manager";
+import { pathExists } from "./fsUtils";
+import { toKebabId } from "./textIds";
 import {
   bootstrapProject,
   createBootstrapVerifier,
@@ -120,21 +122,8 @@ function buildArtifactContext(input: CliPlanStepInput | CliAnalyzeStepInput, tim
   };
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function buildJobId(projectId: string, attempt: number, kind: "build" | "check", suffix: string): string {
-  return `${sanitize(projectId)}-attempt-${attempt}-${kind}-${suffix}`;
-}
-
-function sanitize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "default";
+  return `${toKebabId(projectId)}-attempt-${attempt}-${kind}-${suffix}`;
 }
 
 function didProviderClaimCompletion(answer: string | null): boolean {
