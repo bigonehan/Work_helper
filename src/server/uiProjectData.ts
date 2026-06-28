@@ -196,7 +196,7 @@ const readDraftSummaries = async (workspaceDir: string): Promise<UiDraftSummary[
   }
 
   const drafts = await Promise.all(
-    entries.map(async (entry) => {
+    entries.sort((left, right) => left.localeCompare(right)).map(async (entry) => {
       const draftPath = join(projectDraftsPath(workspaceDir), entry, `${entry}.md`);
       const document = await readOptionalFile(draftPath);
       if (!document) {
@@ -207,7 +207,10 @@ const readDraftSummaries = async (workspaceDir: string): Promise<UiDraftSummary[
       return {
         summary: parsed.summary || entry,
         path: draftPath,
+        request: parsed.request,
+        document,
         itemCount: parsed.draftItems.length,
+        draftItems: parsed.draftItems,
         automatedChecks: parsed.checks.automated,
         assertions: parsed.checks.assertions,
       } satisfies UiDraftSummary;
@@ -604,6 +607,6 @@ export const getProjectDetail = async (
     jobDocument: await readOptionalFile(projectJobPath(detailRoot)),
     domainFiles: await readDomainFileSummaries(detailRoot, project.type, rootDir),
     sourceFolders: await readSourceFolderSummaries(detailRoot, project.type, rootDir),
-    drafts: await readActiveDraftSummaries(detailRoot, project.state),
+    drafts: await readDraftSummaries(detailRoot),
   };
 };

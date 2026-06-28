@@ -1,0 +1,20 @@
+id: draft_template_version
+file: assets/templates/draft.md
+description: Refresh draft.md body structure and bump package version.
+input:
+  - assets/templates/draft.md
+  - package.json
+output:
+  - draft bundle body has clearer work record and verification sections
+  - package version is bumped by 0.0.1
+test:
+  - bun test test/server.project.test.ts로 draft template loading and parsing compatibility를 검증한다
+  - package.json version segment가 두 자리 제한을 넘지 않는지 확인한다
+priority: 3
+kind: action
+target:
+  - assets/templates/draft.md
+  - package.json
+dependsOn:
+  - draft_history_data
+  - draft_history_ui

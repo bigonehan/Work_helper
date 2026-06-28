@@ -1,0 +1,18 @@
+id: draft_history_data
+file: src/server/uiProjectData.ts
+description: Expose full draft history and parsed draft bundle metadata on project detail data.
+input:
+  - .project/drafts/{summary}/{summary}.md
+  - UiProjectDetail
+output:
+  - detail drafts include request, document, draftItems, checks, and assertions
+test:
+  - complete 상태 프로젝트의 detail data에서도 draft history가 유지되는지 검증한다
+  - draft.md 원문과 draft item metadata가 detail data에 포함되는지 검증한다
+priority: 1
+kind: i/o
+target:
+  - src/server/uiProjectData.ts
+  - src/types.ts
+  - test/uiProjectData.test.ts
+dependsOn: []

@@ -53,9 +53,18 @@ export interface UiProjectSummary {
 export interface UiDraftSummary {
   readonly summary: string;
   readonly path: string;
+  readonly request: string;
+  readonly document: string;
   readonly itemCount: number;
+  readonly draftItems: readonly UiDraftItemSummary[];
   readonly automatedChecks: readonly string[];
   readonly assertions: readonly string[];
+}
+
+export interface UiDraftItemSummary {
+  readonly id: string;
+  readonly file: string;
+  readonly description: string;
 }
 
 export interface UiDomainFileSummary {

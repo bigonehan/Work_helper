@@ -61,7 +61,7 @@ describe("ui project data", () => {
     });
   });
 
-  test("hides draft bundles for completed local projects", async () => {
+  test("keeps completed local project draft history on detail data", async () => {
     const workspace = await createWorkspace();
     await mkdir(join(workspace, ".project", "drafts", "basic"), { recursive: true });
     await writeFile(
@@ -97,7 +97,14 @@ describe("ui project data", () => {
     });
 
     const detail = await getProjectDetail("demo", workspace);
-    expect(detail?.drafts).toEqual([]);
+    expect(detail?.drafts).toHaveLength(1);
+    expect(detail?.drafts[0]).toMatchObject({
+      summary: "basic",
+      request: "",
+      document: "---\nsummary: basic\ndraft_items: []\nchecks:\n  automated: []\n  assertions: []\n---\n# Draft Summary\n",
+      draftItems: [],
+      itemCount: 0,
+    });
   });
 
   test("loads detail content for the selected project id", async () => {
@@ -397,7 +404,7 @@ describe("ui project data", () => {
     await expect(readFile(join(projectPath, ".project", "project.md"), "utf8")).resolves.toContain("Todo Demo Updated");
   });
 
-  test("hides registry project draft bundles after completion", async () => {
+  test("keeps registry project draft history on detail data after completion", async () => {
     const root = await createWorkspace();
     const projectPath = join(root, "projects", "draft-demo");
     const created = await createProject(
@@ -433,7 +440,67 @@ describe("ui project data", () => {
       },
     ]);
     const detail = await getProjectDetail(created.id, root);
-    expect(detail?.drafts).toEqual([]);
+    expect(detail?.drafts).toHaveLength(1);
+    expect(detail?.drafts[0]?.summary).toBe("basic");
+  });
+
+  test("loads draft history with request, raw document, and draft item metadata", async () => {
+    const workspace = await createWorkspace();
+    await mkdir(join(workspace, ".project", "drafts", "history"), { recursive: true });
+    await writeFile(
+      join(workspace, ".project", "project.md"),
+      [
+        "# info",
+        "## name",
+        "demo",
+        "## type",
+        "code",
+        "## description",
+        "Demo project",
+        "## spec",
+        "typescript",
+        "## path",
+        workspace,
+        "## state",
+        "work",
+      ].join("\n"),
+      "utf8",
+    );
+    const draftDocument = [
+      "---",
+      "request: Show draft history",
+      "summary: history",
+      "draft_items:",
+      "  - id: draft_data",
+      "    file: draft_data.yaml",
+      "    description: Load draft metadata",
+      "checks:",
+      "  automated:",
+      "    - bun test test/uiProjectData.test.ts",
+      "  assertions:",
+      "    - \"draft_data: Load draft metadata\"",
+      "---",
+      "# Draft Summary",
+      "",
+    ].join("\n");
+    await writeFile(join(workspace, ".project", "drafts", "history", "history.md"), draftDocument, "utf8");
+
+    const detail = await getProjectDetail("demo", workspace);
+    expect(detail?.drafts[0]).toMatchObject({
+      summary: "history",
+      request: "Show draft history",
+      document: draftDocument,
+      itemCount: 1,
+      draftItems: [
+        {
+          id: "draft_data",
+          file: "draft_data.yaml",
+          description: "Load draft metadata",
+        },
+      ],
+      automatedChecks: ["bun test test/uiProjectData.test.ts"],
+      assertions: ["draft_data: Load draft metadata"],
+    });
   });
 
   test("deletes project files and registry entry when requested", async () => {

@@ -1,0 +1,17 @@
+id: draft_history_ui
+file: components/project-detail-tabs.tsx
+description: Render draft history inside the project detail tab menu.
+input:
+  - UiProjectDetail.drafts
+output:
+  - Project detail Drafts tab with selectable draft bundles
+test:
+  - bunx tsc --noEmit로 Drafts tab props와 타입이 올바른지 검증한다
+  - bun run lint:imports로 client component import 규칙을 검증한다
+priority: 2
+kind: ui
+target:
+  - app/projects/[id]/page.tsx
+  - components/project-detail-tabs.tsx
+dependsOn:
+  - draft_history_data

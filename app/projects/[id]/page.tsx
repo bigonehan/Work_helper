@@ -1,4 +1,4 @@
-import { ArrowLeft, Braces, CheckCircle2, FileText, FolderTree } from "lucide-react";
+import { ArrowLeft, Braces, FolderTree } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +53,7 @@ export default async function ProjectDetailPage({
         <RequestRunner projectId={id} initialJobDocument={detail.jobDocument} />
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <ProjectDetailTabs jobDocument={detail.jobDocument} planningDocument={detail.planningDocument} />
+          <ProjectDetailTabs jobDocument={detail.jobDocument} planningDocument={detail.planningDocument} drafts={detail.drafts} />
 
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
             <Card>
@@ -119,47 +119,6 @@ export default async function ProjectDetailPage({
               </CardContent>
             </Card>
           </div>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-2">
-          {detail.drafts.map((draft) => (
-            <Card key={draft.path}>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="truncate">{draft.summary}</CardTitle>
-                    <CardDescription>{draft.itemCount} draft items</CardDescription>
-                  </div>
-                  <FileText className="size-5 text-[var(--muted-foreground)]" aria-hidden="true" />
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h2 className="flex items-center gap-2 text-sm font-semibold">
-                    <CheckCircle2 className="size-4 text-[var(--primary)]" aria-hidden="true" />
-                    Automated checks
-                  </h2>
-                  <ul className="mt-2 space-y-2 text-sm text-[var(--muted-foreground)]">
-                    {draft.automatedChecks.map((check) => (
-                      <li key={check} className="rounded-md bg-[var(--muted)] px-3 py-2">
-                        {check}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <h2 className="text-sm font-semibold">Assertions</h2>
-                  <ul className="mt-2 space-y-2 text-sm text-[var(--muted-foreground)]">
-                    {draft.assertions.map((assertion) => (
-                      <li key={assertion} className="rounded-md bg-[var(--muted)] px-3 py-2">
-                        {assertion}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
         </section>
       </div>
     </main>

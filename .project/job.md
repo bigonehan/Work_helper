@@ -1,17 +1,18 @@
 # requirement
-## Source cleanup
-- Remove unnecessary duplicate helper logic and repeated conditions from the current source.
-- Keep behavior unchanged.
+## Draft history detail menu
+- Project detail pages must include a menu/tab for draft history.
+- Users must be able to inspect prior draft bundles to understand what work has been done.
+- Completed projects must retain draft history on the detail page.
 
 # plan
-- Add focused utility tests first.
-- Extract shared id, filesystem, and API response helpers.
-- Replace duplicate call sites with the shared helpers.
+- Add failing UI data tests for completed-project draft history and richer draft metadata.
+- Expose draft request, raw document, and draft item metadata from detail data.
+- Add a Drafts tab to the project detail tab menu with bundle selection and raw draft display.
+- Refresh the draft bundle markdown body structure.
 - Bump the patch version.
 
 # check
-- bun test test/textIds.test.ts test/fsUtils.test.ts
-- bun test test/server.project.test.ts test/uiProjectData.test.ts test/debugLogging.test.ts
-- bun test
+- bun test test/uiProjectData.test.ts test/server.project.test.ts
 - bunx tsc --noEmit
 - bun run lint:imports
+- bun run check (expected external provider failure: integration > gemini returns 2)
